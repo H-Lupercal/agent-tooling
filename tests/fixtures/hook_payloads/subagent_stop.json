@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SubagentStop",
+  "model": "gpt-5.4",
+  "thread_id": "child-thread",
+  "root_thread_id": "root-run",
+  "parent_thread_id": "root-run",
+  "status": "completed",
+  "agent_transcript_path": "tests/fixtures/rollout_subagent.jsonl"
+}

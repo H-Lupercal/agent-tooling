@@ -1,0 +1,27 @@
+{
+  "_managed_by": "codex-conductor",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {"type": "command", "command": "python3 {conductor_home}/hooks/session_start.py", "timeout": 5, "statusMessage": "Starting conductor ledger"}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "spawn_agent|assign_agent_task|send_message|send_agent_message",
+        "hooks": [
+          {"type": "command", "command": "python3 {conductor_home}/hooks/pre_tool_use.py", "timeout": 5, "statusMessage": "Checking conductor policy"}
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {"hooks": [{"type": "command", "command": "python3 {conductor_home}/hooks/lifecycle.py", "timeout": 5}]}
+    ],
+    "SubagentStop": [
+      {"hooks": [{"type": "command", "command": "python3 {conductor_home}/hooks/lifecycle.py", "timeout": 5}]}
+    ]
+  }
+}

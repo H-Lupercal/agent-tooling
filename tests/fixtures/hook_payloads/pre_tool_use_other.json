@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.5",
+  "thread_id": "root-run",
+  "root_thread_id": "root-run",
+  "tool_name": "read_file",
+  "tool_input": {"path": "README.md"}
+}
