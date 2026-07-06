@@ -9,8 +9,8 @@ from conductor.ledger import append_event, run_state_dir
 from conductor.pricing import pricing_verified
 
 
-def handle(payload: dict) -> None:
-    thread_id = str(payload.get("root_thread_id") or payload.get("thread_id") or payload.get("run_id") or "")
+def handle(payload: dict, run_id: str | None = None) -> None:
+    thread_id = str(run_id or payload.get("root_thread_id") or payload.get("thread_id") or payload.get("run_id") or "")
     if not thread_id:
         return
     ladder = load_ladder()
@@ -36,9 +36,21 @@ def handle(payload: dict) -> None:
     append_event(thread_id, {"event": "run_started"})
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    from conductor.providers import codex, get_provider
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", default="codex")
+    args = parser.parse_args(argv)
     try:
-        handle(read_payload())
+        provider = get_provider(args.provider)
+    except ValueError:
+        provider = codex.PROVIDER
+    try:
+        payload = read_payload()
+        handle(payload, provider.session_run_id(payload))
         write_json({})
     except BaseException as exc:
         log_error("session_start", exc)

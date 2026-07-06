@@ -4,12 +4,13 @@ import argparse
 import json
 from collections import defaultdict
 
-from conductor.config import load_ladder
+from conductor.config import default_config_path, load_ladder
 from conductor.ledger import latest_run_id, read_events, spent_usd
 from conductor.pricing import TokenUsage, cost_usd, pricing_verified, token_usage_from_dict
 
 
 def build_report(run_id: str | None = None) -> dict:
+    config_path = default_config_path()
     ladder = load_ladder()
     run_id = run_id or latest_run_id() or "none"
     events = [] if run_id == "none" else read_events(run_id)
@@ -44,6 +45,7 @@ def build_report(run_id: str | None = None) -> dict:
     savings = baseline - total_usd
     return {
         "run_id": run_id,
+        "config_path": str(config_path),
         "pricing_verified": pricing_verified(ladder),
         "tiers": dict(rows),
         "total_usd": total_usd,
@@ -56,7 +58,7 @@ def build_report(run_id: str | None = None) -> dict:
 def render_human(report: dict) -> str:
     lines: list[str] = []
     if not report["pricing_verified"]:
-        lines.append("PRICING UNVERIFIED - edit ~/.codex/conductor/conductor.toml")
+        lines.append(f"PRICING UNVERIFIED - edit {report.get('config_path', '~/.codex/conductor/conductor.toml')}")
     lines.append(f"run_id: {report['run_id']}")
     lines.append("tier        spawns  done  fail  input  cached  output  usd")
     for tier, row in sorted(report["tiers"].items()):

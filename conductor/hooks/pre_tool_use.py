@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import os
+import argparse
 from dataclasses import dataclass
-from pathlib import Path
 
 from conductor.config import Ladder, enabled_tiers as load_enabled_tiers, load_ladder, models_cache_path
 from conductor.hooks.common import log_error, read_payload, write_json
-from conductor.identity import Caller, resolve_caller
+from conductor.identity import Caller
 from conductor.ledger import active_spawns, append_event, read_events, reserved_usd, same_tier_root_spawns, spent_usd
-from conductor.tool_adapter import normalize_tool_request
+from conductor.tool_adapter import ToolRequest, normalize_tool_request
 
 
 @dataclass(frozen=True)
@@ -19,7 +18,10 @@ class Decision:
 
 
 def decide(payload: dict, ladder: Ladder, events: list[dict], enabled: list[int], caller: Caller) -> Decision:
-    request = normalize_tool_request(payload, {})
+    return _decide(normalize_tool_request(payload, {}), ladder, events, enabled, caller)
+
+
+def _decide(request: ToolRequest, ladder: Ladder, events: list[dict], enabled: list[int], caller: Caller) -> Decision:
     if request.kind not in {"spawn", "new_task"}:
         return Decision("approve", "not a governed agent task")
     if caller.run_id is None:
@@ -111,21 +113,37 @@ def _append(run_id: str | None, event: dict) -> None:
             log_error("pre_tool_use", exc)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    from conductor.providers import codex, get_provider
+
+    args = _parse_args(argv)
+    try:
+        provider = get_provider(args.provider)
+    except ValueError:
+        provider = codex.PROVIDER
     try:
         payload = read_payload()
         ladder = load_ladder()
-        sessions_root = Path(os.environ.get("CODEX_CONDUCTOR_SESSIONS_ROOT", Path.home() / ".codex" / "sessions"))
-        caller = resolve_caller(payload, ladder, sessions_root)
+        caller = provider.resolve_caller(payload, ladder)
+        request = provider.normalize_request(payload)
         events = read_events(caller.run_id) if caller.run_id else []
-        decision = decide(payload, ladder, events, load_enabled_tiers(ladder, models_cache_path()), caller)
+        decision = _decide(request, ladder, events, load_enabled_tiers(ladder, models_cache_path()), caller)
         if decision.decision == "block":
             _append(caller.run_id, {"event": "spawn_blocked", "rule": decision.rule, "reason": decision.reason})
-        write_json({"decision": decision.decision, "reason": decision.reason})
+        elif request.kind in {"spawn", "new_task"}:
+            for event in provider.post_approve_events(request, caller, ladder):
+                _append(caller.run_id, event)
+        write_json(provider.emit_decision(decision.decision, decision.reason))
     except BaseException as exc:
         log_error("pre_tool_use", exc)
-        write_json({"decision": "approve", "reason": "codex-conductor failed open"})
+        write_json(provider.emit_decision("approve", "codex-conductor failed open"))
     return 0
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", default="codex")
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":

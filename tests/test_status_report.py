@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.helpers import DEFAULT_CONFIG, restore_env, set_env, write_config, write_models_cache
+from tests.helpers import DEFAULT_CONFIG, PROJECT_ROOT, restore_env, set_env, write_config, write_models_cache
 
 
 class StatusReportTests(unittest.TestCase):
@@ -31,6 +31,26 @@ class StatusReportTests(unittest.TestCase):
                 self.assertIn("standard", text)
                 self.assertIn("TOTAL", text)
                 self.assertIn("savings_pct", text)
+            finally:
+                restore_env(old)
+
+    def test_unverified_report_points_to_active_config_path(self):
+        from conductor.report import build_report, render_human
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".claude" / "conductor" / "conductor.toml"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text((PROJECT_ROOT / "config" / "conductor.claude.toml").read_text(encoding="utf-8"), encoding="utf-8")
+            old = set_env(
+                CODEX_CONDUCTOR_HOME=str(root / ".claude" / "conductor"),
+                CODEX_CONDUCTOR_CONFIG=str(config_path),
+            )
+            try:
+                text = render_human(build_report("none"))
+
+                self.assertIn(f"PRICING UNVERIFIED - edit {config_path}", text)
+                self.assertNotIn("~/.codex/conductor/conductor.toml", text)
             finally:
                 restore_env(old)
 

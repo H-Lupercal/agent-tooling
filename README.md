@@ -1,32 +1,40 @@
 # codex-conductor
 
-`codex-conductor` is a cost-aware orchestration layer for Codex subagents. It
-keeps the primary model on `gpt-5.5`, routes bounded delegated work to cheaper
-enabled models, and uses Codex hooks to block subagent spawns that violate the
-task envelope, tier ladder, depth limit, concurrency caps, or delegated-spawn
-budget.
+`codex-conductor` is a cost-aware orchestration layer for Codex and Claude Code
+subagents. It keeps the primary model on the frontier tier, routes bounded
+delegated work to cheaper enabled models, and uses native hooks to block
+subagent spawns that violate the task envelope, tier ladder, depth limit,
+concurrency caps, or delegated-spawn budget.
 
-It is a stdlib-only Python project. It does not modify the Codex binary and it
-does not run a wrapper daemon. Enforcement happens through Codex's native hook
-system and is intentionally a guardrail, not a hard billing or security
-boundary.
+It is a stdlib-only Python project. It does not modify the Codex or Claude Code
+binary and it does not run a wrapper daemon. Enforcement happens through each
+provider's native hook system and is intentionally a guardrail, not a hard
+billing or security boundary.
 
 ## What It Installs
 
 The installer writes only marked, managed files or blocks:
+
+For Codex:
 
 - `~/.codex/hooks.json`
 - `~/.codex/conductor/`
 - a managed `[agents]` block in `~/.codex/config.toml`
 - a managed delegation policy block in `~/AGENTS.md`
 
+For Claude Code:
+
+- merged hook entries in `~/.claude/settings.json`
+- `~/.claude/conductor/`
+- a managed delegation policy block in `~/.claude/CLAUDE.md`
+
 The source project can be cloned anywhere. The installer renders the current
 checkout path into the generated hook wrappers and installed policy.
 
 ## How It Works
 
-Codex reads the installed `AGENTS.md` policy. Before spawning subagents, the
-primary model runs:
+Codex reads the installed `AGENTS.md` policy. Claude Code reads the installed
+`~/.claude/CLAUDE.md` policy. Before spawning subagents, the primary model runs:
 
 ```bash
 PYTHONPATH=/path/to/codex-conductor python3 -m conductor.status --pretty
@@ -42,7 +50,8 @@ Every governed spawn must include a machine-readable task envelope:
 ```
 
 The `PreToolUse` hook checks the requested model and task envelope before Codex
-spawns or assigns a new task. It blocks requests when:
+spawns or assigns a new task, or before Claude Code calls the `Task` tool. It
+blocks requests when:
 
 - the root run identity cannot be resolved
 - the task envelope is missing or invalid
@@ -56,12 +65,12 @@ spawns or assigns a new task. It blocks requests when:
 - the requested tier is already at its concurrency cap
 - the delegated-spawn budget would be exceeded
 
-Lifecycle hooks write subagent start/stop and cost records to the ledger under
-`~/.codex/conductor/state/`.
+Lifecycle hooks write subagent start/stop and cost records to the provider's
+ledger, under `~/.codex/conductor/state/` or `~/.claude/conductor/state/`.
 
 ## Model Ladder
 
-Default tiers are configured in `~/.codex/conductor/conductor.toml`
+Codex default tiers are configured in `~/.codex/conductor/conductor.toml`
 after install:
 
 | Tier | Model | Intended Work |
@@ -74,6 +83,18 @@ after install:
 `mini` and `spark` are enabled automatically only when the models appear in
 Codex's local model cache. If an auto tier is unavailable, its classes fall
 back to the next stronger enabled tier.
+
+Claude Code default tiers are configured in
+`~/.claude/conductor/conductor.toml` after install:
+
+| Tier | Model | Intended Work |
+|---|---|---|
+| `frontier` | `claude-opus-4-8` | architecture, high-risk work, integration, review gates |
+| `standard` | `claude-sonnet-5` | implementation, refactors, debugging, cross-module changes |
+| `mini` | `claude-haiku-4-5` | tests, docs, mechanical edits, searches, summaries, formatting |
+
+Claude `Task` calls may use aliases `opus`, `sonnet`, and `haiku`; conductor
+normalizes them to the configured model ids before enforcing the ladder.
 
 ## Install
 
@@ -94,9 +115,18 @@ The installer refuses to proceed if it finds unmanaged `[agents]`, `[hooks]`,
 or `[rollout_budget]` tables in `~/.codex/config.toml`, or a foreign
 `~/.codex/hooks.json`.
 
+Install into the real Claude Code home:
+
+```bash
+bash install.sh --provider claude
+```
+
+The Claude installer merges managed hook entries into `~/.claude/settings.json`
+and preserves existing non-conductor hooks.
+
 ## Required Hook Trust
 
-After installing, open the Codex CLI and trust the new hooks once:
+After installing Codex support, open the Codex CLI and trust the new hooks once:
 
 ```text
 /hooks
@@ -158,13 +188,15 @@ real dollar pricing.
 
 ## Operational Notes
 
-Live Codex probe/E2E was not run during implementation to avoid token/API
+Live provider probe/E2E was not run during implementation to avoid token/API
 spend. Offline tests were run instead.
 
 You still need to trust the new hooks once in the Codex CLI via `/hooks`.
+For Claude Code, review `~/.claude/settings.json` after install if your local
+setup requires hook approval or managed settings review.
 
 Prices are placeholders, so reports show `PRICING UNVERIFIED` until you edit
-`~/.codex/conductor/conductor.toml`.
+the installed provider config.
 
 Hooks fail open on unexpected internal errors so Codex does not get bricked.
 Controlled policy failures, such as missing task envelopes or budget overflow,
@@ -199,7 +231,7 @@ RUN_LIVE=1 make probe
 RUN_LIVE=1 make e2e
 ```
 
-Those commands may spend Codex/API usage.
+Those commands may spend provider/API usage.
 
 ## Uninstall
 
@@ -208,5 +240,12 @@ cd /path/to/codex-conductor
 bash uninstall.sh
 ```
 
-Uninstall removes only managed blocks and the managed `hooks.json`. Ledger state
-under `~/.codex/conductor/state/` is left in place.
+For Claude Code:
+
+```bash
+cd /path/to/codex-conductor
+bash uninstall.sh --provider claude
+```
+
+Uninstall removes only managed blocks and managed hook entries. Ledger state
+under the provider's `conductor/state/` directory is left in place.

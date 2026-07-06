@@ -82,9 +82,20 @@ def _record_cost(run_id: str, thread_id: str, model: str | None, transcript_path
     )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    from conductor.providers import codex, get_provider
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", default="codex")
+    args = parser.parse_args(argv)
     try:
-        handle(read_payload())
+        provider = get_provider(args.provider)
+    except ValueError:
+        provider = codex.PROVIDER
+    try:
+        provider.handle_lifecycle(read_payload())
         write_json({})
     except BaseException as exc:
         log_error("lifecycle", exc)
