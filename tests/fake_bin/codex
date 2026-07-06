@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+echo "$@" >> "${FAKE_BIN_LOG:?FAKE_BIN_LOG not set}"
+if [ -n "${FAKE_STDOUT_FILE:-}" ]; then cat "$FAKE_STDOUT_FILE"; fi
+if [ -n "${FAKE_STDERR:-}" ]; then echo "$FAKE_STDERR" >&2; fi
+exit "${FAKE_EXIT_CODE:-0}"

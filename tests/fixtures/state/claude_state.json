@@ -1,0 +1,14 @@
+{
+  "mcpServers": {},
+  "projects": {
+    "/tmp/toolbelt-fixture": {
+      "mcpServers": {
+        "playwright": {
+          "type": "stdio",
+          "command": "npx",
+          "args": ["-y", "@playwright/mcp@latest"]
+        }
+      }
+    }
+  }
+}

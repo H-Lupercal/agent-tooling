@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "plugins": {
+    "superpowers@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "/home/user/.claude/plugins/superpowers",
+        "version": "6.1.1"
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "node-react-fixture",
+  "private": true,
+  "dependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "typescript": "^5.5.0"
+  }
+}
