@@ -10,7 +10,7 @@ Live probes were not run during this build to avoid spending Codex/API usage.
 Before relying on this in an expensive production workflow, run:
 
 ```bash
-cd /home/neil/VSproj/codex-conductor
+cd /path/to/codex-conductor
 RUN_LIVE=1 make probe
 ```
 

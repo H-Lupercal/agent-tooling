@@ -44,7 +44,7 @@ def install(codex_home: Path | None = None, agents_path: Path | None = None, dry
         config_block = "\n".join((CONFIG_START, "[agents]", "max_threads = 8", "max_depth = 3", "job_max_runtime_seconds = 1800", CONFIG_END, ""))
         _upsert_block(codex_home / "config.toml", CONFIG_START, CONFIG_END, config_block, dry_run)
         written.append(codex_home / "config.toml")
-        policy = (PROJECT_ROOT / "policy" / "orchestration-policy.md").read_text(encoding="utf-8")
+        policy = _render_policy(PROJECT_ROOT)
         _upsert_block(agents_path, POLICY_START, POLICY_END, policy, dry_run)
         written.append(agents_path)
         return written
@@ -138,6 +138,11 @@ def _render_hooks_json(hooks_dir: Path) -> str:
         },
     }
     return json.dumps(data, indent=2, sort_keys=True) + "\n"
+
+
+def _render_policy(project_root: Path = PROJECT_ROOT) -> str:
+    template = (PROJECT_ROOT / "policy" / "orchestration-policy.md").read_text(encoding="utf-8")
+    return template.replace("{{PROJECT_ROOT}}", shlex.quote(str(project_root)))
 
 
 def _upsert_block(path: Path, start: str, end: str, block: str, dry_run: bool) -> None:

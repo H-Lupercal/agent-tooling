@@ -15,16 +15,13 @@ boundary.
 
 The installer writes only marked, managed files or blocks:
 
-- `/home/neil/.codex/hooks.json`
-- `/home/neil/.codex/conductor/`
-- a managed `[agents]` block in `/home/neil/.codex/config.toml`
-- a managed delegation policy block in `/home/neil/AGENTS.md`
+- `~/.codex/hooks.json`
+- `~/.codex/conductor/`
+- a managed `[agents]` block in `~/.codex/config.toml`
+- a managed delegation policy block in `~/AGENTS.md`
 
-The source project lives at:
-
-```bash
-/home/neil/VSproj/codex-conductor
-```
+The source project can be cloned anywhere. The installer renders the current
+checkout path into the generated hook wrappers and installed policy.
 
 ## How It Works
 
@@ -32,7 +29,7 @@ Codex reads the installed `AGENTS.md` policy. Before spawning subagents, the
 primary model runs:
 
 ```bash
-PYTHONPATH=/home/neil/VSproj/codex-conductor python3 -m conductor.status --pretty
+PYTHONPATH=/path/to/codex-conductor python3 -m conductor.status --pretty
 ```
 
 That reports the enabled tiers, current spend, reserved budget, active
@@ -60,11 +57,11 @@ spawns or assigns a new task. It blocks requests when:
 - the delegated-spawn budget would be exceeded
 
 Lifecycle hooks write subagent start/stop and cost records to the ledger under
-`/home/neil/.codex/conductor/state/`.
+`~/.codex/conductor/state/`.
 
 ## Model Ladder
 
-Default tiers are configured in `/home/neil/.codex/conductor/conductor.toml`
+Default tiers are configured in `~/.codex/conductor/conductor.toml`
 after install:
 
 | Tier | Model | Intended Work |
@@ -83,7 +80,7 @@ back to the next stronger enabled tier.
 Run the offline test suite first:
 
 ```bash
-cd /home/neil/VSproj/codex-conductor
+cd /path/to/codex-conductor
 python3 -m unittest discover -s tests -v
 ```
 
@@ -118,22 +115,24 @@ Use that only when you already trust the installed hook source.
 
 ## Daily Use
 
+Run these commands from the repository checkout.
+
 To inspect the current run state:
 
 ```bash
-PYTHONPATH=/home/neil/VSproj/codex-conductor python3 -m conductor.status --pretty
+PYTHONPATH="$PWD" python3 -m conductor.status --pretty
 ```
 
 To render the latest cost report:
 
 ```bash
-PYTHONPATH=/home/neil/VSproj/codex-conductor python3 -m conductor.report --last
+PYTHONPATH="$PWD" python3 -m conductor.report --last
 ```
 
 To report a specific run:
 
 ```bash
-PYTHONPATH=/home/neil/VSproj/codex-conductor python3 -m conductor.report --run <run-id>
+PYTHONPATH="$PWD" python3 -m conductor.report --run <run-id>
 ```
 
 The installed policy tells the primary Codex agent to include the report at the
@@ -151,7 +150,7 @@ PRICING UNVERIFIED
 Set real prices here:
 
 ```bash
-/home/neil/.codex/conductor/conductor.toml
+~/.codex/conductor/conductor.toml
 ```
 
 Until prices are set, budget estimates use relative cost weights rather than
@@ -165,7 +164,7 @@ spend. Offline tests were run instead.
 You still need to trust the new hooks once in the Codex CLI via `/hooks`.
 
 Prices are placeholders, so reports show `PRICING UNVERIFIED` until you edit
-`/home/neil/.codex/conductor/conductor.toml`.
+`~/.codex/conductor/conductor.toml`.
 
 Hooks fail open on unexpected internal errors so Codex does not get bricked.
 Controlled policy failures, such as missing task envelopes or budget overflow,
@@ -176,11 +175,11 @@ applies only to new governed spawns.
 
 ## Environment Variables
 
-- `CODEX_CONDUCTOR_HOME`: state/config root, default `/home/neil/.codex/conductor`
+- `CODEX_CONDUCTOR_HOME`: state/config root, default `~/.codex/conductor`
 - `CODEX_CONDUCTOR_CONFIG`: config file path, default `$CODEX_CONDUCTOR_HOME/conductor.toml`
 - `CONDUCTOR_RUN_USD_CAP`: override delegated-spawn budget for the current process
-- `CODEX_CONDUCTOR_SESSIONS_ROOT`: Codex rollout root, default `/home/neil/.codex/sessions`
-- `CODEX_MODELS_CACHE`: model cache path, default `/home/neil/.codex/models_cache.json`
+- `CODEX_CONDUCTOR_SESSIONS_ROOT`: Codex rollout root, default `~/.codex/sessions`
+- `CODEX_MODELS_CACHE`: model cache path, default `~/.codex/models_cache.json`
 - `RUN_LIVE=1`: enables live probe/E2E scripts
 
 ## Verification
@@ -188,7 +187,7 @@ applies only to new governed spawns.
 Offline verification:
 
 ```bash
-cd /home/neil/VSproj/codex-conductor
+cd /path/to/codex-conductor
 python3 -m unittest discover -s tests -v
 python3 -m compileall conductor
 ```
@@ -205,9 +204,9 @@ Those commands may spend Codex/API usage.
 ## Uninstall
 
 ```bash
-cd /home/neil/VSproj/codex-conductor
+cd /path/to/codex-conductor
 bash uninstall.sh
 ```
 
 Uninstall removes only managed blocks and the managed `hooks.json`. Ledger state
-under `/home/neil/.codex/conductor/state/` is left in place.
+under `~/.codex/conductor/state/` is left in place.
