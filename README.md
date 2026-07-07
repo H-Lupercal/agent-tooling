@@ -16,8 +16,9 @@ fail open on internal errors, and already-running subagents are never killed.
 
 - **Python 3.11 or newer.** The config loader uses the stdlib `tomllib` module
   and the hooks use `datetime.UTC`, both introduced in 3.11.
-- **A POSIX host (Linux or macOS).** The ledger serializes concurrent writes
-  with `fcntl.flock`, which is not available on Windows.
+- **Linux, macOS, or Windows.** The ledger serializes concurrent writes with a
+  portable advisory file lock - `fcntl.flock` on POSIX, `msvcrt.locking` on
+  Windows.
 - **Codex CLI** and/or **Claude Code**, each with native hook support.
 
 You can run everything straight from a checkout
@@ -147,6 +148,8 @@ Install into the real Codex home:
 bash install.sh
 ```
 
+On Windows (PowerShell): `.\install.ps1`.
+
 The installer **refuses to proceed** if it finds unmanaged `[agents]`,
 `[hooks]`, or `[rollout_budget]` tables in `~/.codex/config.toml`, or a foreign
 `~/.codex/hooks.json`. Use `--dry-run` to preview the exact diffs first.
@@ -156,6 +159,8 @@ Install into the real Claude Code home:
 ```bash
 bash install.sh --provider claude
 ```
+
+On Windows (PowerShell): `.\install.ps1 --provider claude`.
 
 The Claude installer merges managed hook entries into `~/.claude/settings.json`
 and preserves existing non-conductor hooks.
@@ -339,6 +344,9 @@ cd /path/to/codex-conductor
 bash uninstall.sh                    # Codex
 bash uninstall.sh --provider claude  # Claude Code
 ```
+
+On Windows (PowerShell): `.\uninstall.ps1` (add `--provider claude` for Claude
+Code).
 
 Uninstall removes only managed blocks and managed hook entries. Ledger state
 under the provider's `conductor/state/` directory is left in place; delete it

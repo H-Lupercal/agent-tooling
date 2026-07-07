@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import time
 from collections import defaultdict
 from pathlib import Path
 
 from conductor.config import conductor_home
+from conductor.filelock import lock_exclusive, unlock
 
 
 def run_state_dir(run_id: str) -> Path:
@@ -19,12 +19,12 @@ def append_event(run_id: str, event: dict) -> None:
     lock_path = state / ".ledger.lock"
     record = {"v": 1, "ts": time.time(), **event}
     with lock_path.open("a", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        lock_exclusive(lock)
         try:
             with (state / "ledger.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            unlock(lock)
 
 
 def read_events(run_id: str) -> list[dict]:

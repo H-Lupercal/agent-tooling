@@ -30,7 +30,7 @@ def run_checks(provider: str, *, home: Path | None = None, policy_path: Path | N
         checks.append({"name": name, "status": status, "detail": detail})
 
     check("python", "ok", f"Python {sys.version.split()[0]}")
-    check("platform", "fail" if sys.platform == "win32" else "ok", "fcntl.flock unavailable on Windows" if sys.platform == "win32" else "posix")
+    check("platform", "ok", sys.platform)
 
     ladder = None
     try:

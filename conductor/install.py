@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -132,9 +133,16 @@ def _refuse_conflicts(codex_home: Path, agents_path: Path) -> None:
         _strip_block(agents_path.read_text(encoding="utf-8"), POLICY_START, POLICY_END)
 
 
+def _hook_command(script: Path, *args: str) -> str:
+    parts = [sys.executable, str(script), *args]
+    if os.name == "nt":
+        return " ".join(f'"{part}"' if (" " in part or "\t" in part) else part for part in parts)
+    return " ".join(shlex.quote(part) for part in parts)
+
+
 def _render_hooks_json(hooks_dir: Path) -> str:
     def command(module: str) -> str:
-        return "python3 " + shlex.quote(str(hooks_dir / f"{module}.py"))
+        return _hook_command(hooks_dir / f"{module}.py")
 
     data = {
         "_managed_by": "codex-conductor",
@@ -219,7 +227,7 @@ def _uninstall_claude(claude_home: Path | None, claude_md_path: Path | None, dry
 
 def _claude_hook_entries(hooks_dir: Path) -> dict[str, dict]:
     def command(module: str) -> str:
-        return "python3 " + shlex.quote(str(hooks_dir / f"{module}.py")) + " --provider claude"
+        return _hook_command(hooks_dir / f"{module}.py", "--provider", "claude")
 
     return {
         "SessionStart": {
