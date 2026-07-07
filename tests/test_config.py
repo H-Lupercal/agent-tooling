@@ -41,6 +41,7 @@ class ConfigTests(unittest.TestCase):
             ("input_usd_per_mtok = 10.0", "input_usd_per_mtok = -1.0", "tier frontier: negative price"),
             ("run_usd_cap = 10.00", "run_usd_cap = 0", "budget.run_usd_cap must be > 0"),
             ("max_depth = 3", "max_depth = 6", "policy.max_depth must be in 1..5"),
+            ("relative_cost_weight = 6", "relative_cost_weight = 30", "tier mini: relative_cost_weight must be lower than tier standard"),
         ]
         for old, new, message in cases:
             with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:

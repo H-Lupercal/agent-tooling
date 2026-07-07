@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-conductor"
+dynamic = ["version"]
+description = "Cost-aware orchestration guardrail for Codex and Claude Code subagents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "legoreddragon-ai", email = "sumanth.coder@gmail.com" }]
+keywords = ["codex", "claude-code", "llm", "orchestration", "cost", "hooks"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX",
+]
+dependencies = []
+
+[project.scripts]
+conductor = "conductor.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "conductor.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["conductor*"]

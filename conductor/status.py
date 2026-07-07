@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
-from conductor.config import enabled_tiers, load_ladder, models_cache_path
+from conductor.config import enabled_tiers, load_ladder, models_cache_path, provider_home
 from conductor.ledger import active_spawns, latest_run_id, read_events, reserved_usd, spent_usd
 from conductor.pricing import pricing_verified
 
@@ -52,7 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run")
     parser.add_argument("--pretty", action="store_true")
+    parser.add_argument("--provider", choices=["codex", "claude"], default="codex")
     args = parser.parse_args(argv)
+    os.environ.setdefault("CODEX_CONDUCTOR_HOME", str(provider_home(args.provider)))
     try:
         status = build_status(args.run)
     except Exception as exc:

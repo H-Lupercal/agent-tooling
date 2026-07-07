@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import defaultdict
 
-from conductor.config import default_config_path, load_ladder
+from conductor.config import default_config_path, load_ladder, provider_home
 from conductor.ledger import latest_run_id, read_events, spent_usd
 from conductor.pricing import TokenUsage, cost_usd, pricing_verified, token_usage_from_dict
 
@@ -76,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--last", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--sessions-root")
+    parser.add_argument("--provider", choices=["codex", "claude"], default="codex")
     args = parser.parse_args(argv)
+    os.environ.setdefault("CODEX_CONDUCTOR_HOME", str(provider_home(args.provider)))
     try:
         report = build_report(args.run if not args.last else None)
     except Exception as exc:

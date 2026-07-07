@@ -18,7 +18,6 @@ enforce = true
 max_depth = 2
 require_strictly_cheaper = true
 same_tier_spawns_from_root_max = 2
-retry_same_tier_max = 1
 
 [[tier]]
 name = "frontier"
@@ -181,6 +180,122 @@ class ClaudeProviderTests(unittest.TestCase):
                 self.assertEqual(caller.depth, 1)
                 self.assertEqual(caller.tier_index, 1)
                 self.assertEqual(caller.model, "claude-sonnet-5")
+            finally:
+                restore_env(old)
+
+    def test_subagent_stop_falls_back_to_tier_estimate_when_no_usage(self):
+        from conductor.ledger import active_spawns, append_event, read_events
+        from conductor.providers.claude import PROVIDER
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = set_env(
+                CODEX_CONDUCTOR_HOME=str(root / "home"),
+                CODEX_CONDUCTOR_CONFIG=str(write_config(root / "conductor.toml", CLAUDE_CONFIG)),
+            )
+            try:
+                append_event(
+                    "claude-run",
+                    {"event": "subagent_start", "thread_id": "agent-1", "model": "claude-sonnet-5", "tier": "standard"},
+                )
+
+                # No transcript paths at all: usage is unreadable.
+                PROVIDER.handle_lifecycle(
+                    {"hook_event_name": "SubagentStop", "session_id": "claude-run", "agent_id": "agent-1", "status": "completed"}
+                )
+                events = read_events("claude-run")
+                costs = [event for event in events if event.get("event") == "cost_recorded"]
+
+                self.assertEqual(len(costs), 1)
+                self.assertEqual(costs[-1]["tier"], "standard")
+                self.assertEqual(costs[-1]["usd"], 0.60)
+                self.assertIsNone(costs[-1]["tokens"])
+                self.assertTrue(costs[-1]["estimated"])
+                self.assertEqual(active_spawns(events), {"standard": []})
+            finally:
+                restore_env(old)
+
+    def test_subagent_stop_prefers_agent_transcript_over_main_transcript(self):
+        from conductor.ledger import active_spawns, append_event, read_events
+        from conductor.providers.claude import PROVIDER
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            agent_transcript = root / "agent-1.jsonl"
+            agent_transcript.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "type": "assistant",
+                                "message": {
+                                    "model": "claude-sonnet-5",
+                                    "usage": {
+                                        "input_tokens": 100,
+                                        "cache_read_input_tokens": 20,
+                                        "cache_creation_input_tokens": 30,
+                                        "output_tokens": 40,
+                                    },
+                                },
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "type": "assistant",
+                                "message": {
+                                    "model": "claude-sonnet-5",
+                                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                                },
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            # The main transcript holds the parent's own turns; it must be ignored.
+            main_transcript = root / "main.jsonl"
+            main_transcript.write_text(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "isSidechain": False,
+                        "message": {"model": "claude-opus-4-8", "usage": {"input_tokens": 99999, "output_tokens": 99999}},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            old = set_env(
+                CODEX_CONDUCTOR_HOME=str(root / "home"),
+                CODEX_CONDUCTOR_CONFIG=str(write_config(root / "conductor.toml", CLAUDE_CONFIG)),
+            )
+            try:
+                append_event(
+                    "claude-run",
+                    {"event": "subagent_start", "thread_id": "agent-1", "model": "claude-sonnet-5", "tier": "standard"},
+                )
+
+                PROVIDER.handle_lifecycle(
+                    {
+                        "hook_event_name": "SubagentStop",
+                        "session_id": "claude-run",
+                        "agent_id": "agent-1",
+                        "status": "completed",
+                        "transcript_path": str(main_transcript),
+                        "agent_transcript_path": str(agent_transcript),
+                    }
+                )
+                events = read_events("claude-run")
+                costs = [event for event in events if event.get("event") == "cost_recorded"]
+
+                self.assertEqual(len(costs), 1)
+                self.assertEqual(costs[-1]["model"], "claude-sonnet-5")
+                self.assertEqual(costs[-1]["thread_id"], "agent-1")
+                self.assertEqual(costs[-1]["tokens"]["input_tokens"], 160)
+                self.assertEqual(costs[-1]["tokens"]["cached_input_tokens"], 20)
+                self.assertEqual(costs[-1]["tokens"]["output_tokens"], 45)
+                self.assertEqual(active_spawns(events), {"standard": []})
             finally:
                 restore_env(old)
 

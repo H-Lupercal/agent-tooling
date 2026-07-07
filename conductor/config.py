@@ -75,7 +75,6 @@ class Policy:
     max_depth: int
     require_strictly_cheaper: bool
     same_tier_spawns_from_root_max: int
-    retry_same_tier_max: int
 
 
 @dataclass(frozen=True)
@@ -105,6 +104,12 @@ class Ladder:
 
 def conductor_home() -> Path:
     return Path(os.environ.get("CODEX_CONDUCTOR_HOME", Path.home() / ".codex" / "conductor")).expanduser()
+
+
+def provider_home(provider: str) -> Path:
+    """Canonical conductor home for a provider."""
+    root = ".claude" if provider == "claude" else ".codex"
+    return Path.home() / root / "conductor"
 
 
 def default_config_path() -> Path:
@@ -137,7 +142,6 @@ def load_ladder(path: Path | None = None) -> Ladder:
         max_depth=int(policy_data.get("max_depth", 3)),
         require_strictly_cheaper=bool(policy_data.get("require_strictly_cheaper", True)),
         same_tier_spawns_from_root_max=int(policy_data.get("same_tier_spawns_from_root_max", 2)),
-        retry_same_tier_max=int(policy_data.get("retry_same_tier_max", 1)),
     )
     tiers = tuple(_tier_from_dict(raw) for raw in data.get("tier", []))
     ladder = Ladder(budget=budget, policy=policy, tiers=tiers)
@@ -189,6 +193,11 @@ def _validate(ladder: Ladder) -> None:
             if task_class in assigned:
                 raise ConfigError(f"task class {task_class} assigned to multiple tiers: {assigned[task_class]}, {tier.name}")
             assigned[task_class] = tier.name
+    for previous, current in zip(ladder.tiers, ladder.tiers[1:]):
+        if current.relative_cost_weight >= previous.relative_cost_weight:
+            raise ConfigError(
+                f"tier {current.name}: relative_cost_weight must be lower than tier {previous.name}"
+            )
     if not any(tier.enabled != "never" for tier in ladder.tiers):
         raise ConfigError("at least one tier must be enabled")
 

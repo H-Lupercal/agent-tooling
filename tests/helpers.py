@@ -21,7 +21,6 @@ DEFAULT_CONFIG = textwrap.dedent(
     max_depth = 3
     require_strictly_cheaper = true
     same_tier_spawns_from_root_max = 2
-    retry_same_tier_max = 1
 
     [[tier]]
     name = "frontier"
