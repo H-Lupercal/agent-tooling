@@ -7,8 +7,13 @@ plugins, repo-committed skills, language servers, and dev tools across the
 Claude Code and Codex harnesses.
 
 Runtime constraints are intentionally small: Python 3.11 or newer, standard
-library only, no third-party packages, no build step. Toolbelt is POSIX-only —
-it uses `fcntl` for manifest locking and will not import on Windows.
+library only, no third-party packages, no build step. The `python -m toolbelt`
+CLI and the unit-test suite (`python -m unittest discover -s tests`) run on
+Linux, macOS, and Windows. The `make` targets and the `*.sh` helpers
+(`tests/e2e_smoke.sh`, `scripts/probe_cli_output.sh`) need a POSIX shell; on
+Windows run them under Git Bash or WSL, or use the native commands directly:
+`python -m compileall toolbelt` (lint) and `python -m unittest discover -s tests`
+(test).
 
 ## Commands
 

@@ -197,12 +197,13 @@ class RealApplyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.old_env = os.environ.copy()
         fake = ROOT / "tests" / "fake_bin"
+        suffix = ".cmd" if os.name == "nt" else ""
         self.tmp = tempfile.mkdtemp()
         os.environ.update(
             {
                 "TOOLBELT_CATALOG": str(FIXTURES / "e2e_catalog.toml"),
-                "TOOLBELT_CLAUDE_BIN": str(fake / "claude"),
-                "TOOLBELT_CODEX_BIN": str(fake / "codex"),
+                "TOOLBELT_CLAUDE_BIN": str(fake / f"claude{suffix}"),
+                "TOOLBELT_CODEX_BIN": str(fake / f"codex{suffix}"),
                 "FAKE_BIN_LOG": str(Path(self.tmp) / "fake.log"),
                 "TOOLBELT_CLAUDE_STATE": str(Path(self.tmp) / "claude_state.json"),
                 "TOOLBELT_CODEX_CONFIG": str(Path(self.tmp) / "codex_config.toml"),
@@ -656,6 +657,54 @@ class DiscoveryTests(unittest.TestCase):
             with redirect_stdout(StringIO()) as buf:
                 self.assertEqual(_cmd_validate(args), 0)
             self.assertIn("OK", buf.getvalue())
+
+
+class PortabilityTests(unittest.TestCase):
+    def test_save_manifest_works_without_fcntl(self) -> None:
+        from toolbelt import manifest as m
+
+        original = m.fcntl
+        m.fcntl = None
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                data = m.load_manifest(root)
+                data["tools"] = {"x": {"state": "installed"}}
+                m.save_manifest(root, data)
+                self.assertEqual(m.load_manifest(root)["tools"]["x"]["state"], "installed")
+                self.assertFalse((root / ".toolbelt" / ".manifest.lock").exists())
+        finally:
+            m.fcntl = original
+
+    def test_manifest_uses_lf_newlines(self) -> None:
+        from toolbelt.manifest import load_manifest, save_manifest
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            save_manifest(root, load_manifest(root))
+            raw = (root / ".toolbelt" / "manifest.json").read_bytes()
+            self.assertNotIn(b"\r\n", raw)
+
+    def test_evidence_sources_use_forward_slashes(self) -> None:
+        from toolbelt.evidence import scan
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "packages" / "api").mkdir(parents=True)
+            (root / "packages" / "api" / "package.json").write_text(
+                '{"dependencies": {"pg": "^8"}}', encoding="utf-8"
+            )
+            for e in scan(root):
+                self.assertNotIn("\\", e.source)
+                self.assertNotIn("\\", e.detail)
+
+    def test_github_actions_detected(self) -> None:
+        from toolbelt.evidence import scan
+
+        with tempfile.TemporaryDirectory() as td:
+            root = copy_fixture_repo("terraform_infra", td)
+            keys = {(e.type, e.key) for e in scan(root)}
+            self.assertIn(("infra", "github_actions"), keys)
 
 
 if __name__ == "__main__":

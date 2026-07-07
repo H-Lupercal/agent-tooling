@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 class ManifestError(Exception):
@@ -41,21 +46,63 @@ def load_manifest(root: Path) -> dict:
         raise ManifestError(f"corrupt manifest: {path}; move it aside to re-init") from exc
 
 
+@contextmanager
+def _manifest_lock(tb: Path):
+    lock = tb / ".manifest.lock"
+    start = time.time()
+    if fcntl is not None:
+        with lock.open("w", encoding="utf-8") as lock_f:
+            while True:
+                try:
+                    fcntl.flock(lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError as exc:
+                    if time.time() - start > 5:
+                        raise ManifestError("manifest lock timeout") from exc
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_f, fcntl.LOCK_UN)
+    else:
+        fd = None
+        while True:
+            try:
+                fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                break
+            except FileExistsError as exc:
+                try:
+                    stale = (time.time() - lock.stat().st_mtime) > 30
+                except OSError:
+                    stale = False
+                if stale:
+                    try:
+                        lock.unlink()
+                    except OSError:
+                        pass
+                    continue
+                if time.time() - start > 5:
+                    raise ManifestError("manifest lock timeout") from exc
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            try:
+                if fd is not None:
+                    os.close(fd)
+            except OSError:
+                pass
+            try:
+                lock.unlink()
+            except OSError:
+                pass
+
+
 def save_manifest(root: Path, data: dict) -> None:
     root = Path(root)
     tb = root / ".toolbelt"
     tb.mkdir(parents=True, exist_ok=True)
-    lock = tb / ".manifest.lock"
-    start = time.time()
-    with lock.open("w", encoding="utf-8") as lock_f:
-        while True:
-            try:
-                fcntl.flock(lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError as exc:
-                if time.time() - start > 5:
-                    raise ManifestError("manifest lock timeout") from exc
-                time.sleep(0.05)
+    with _manifest_lock(tb):
         data = dict(data)
         data.setdefault("schema_version", 1)
         data.setdefault("project_root", str(root.resolve()))
@@ -64,14 +111,13 @@ def save_manifest(root: Path, data: dict) -> None:
         data["updated_at"] = _now()
         fd, tmp_name = tempfile.mkstemp(prefix="manifest.", suffix=".tmp", dir=str(tb))
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as tmp:
                 json.dump(data, tmp, indent=2, sort_keys=True)
                 tmp.write("\n")
             os.replace(tmp_name, manifest_path(root))
         finally:
             if os.path.exists(tmp_name):
                 os.unlink(tmp_name)
-        fcntl.flock(lock_f, fcntl.LOCK_UN)
 
 
 def upsert_tool(data: dict, tool_id: str, record: dict) -> dict:

@@ -47,7 +47,7 @@ def _walk(root: Path):
 
 
 def _rel(root: Path, path: Path) -> str:
-    return str(path.relative_to(root))
+    return path.relative_to(root).as_posix()
 
 
 def _dep_name(spec: str) -> str:
@@ -66,7 +66,7 @@ def _manifest_paths(root: Path) -> list[Path]:
 
 def detect_manifest_files(root: Path) -> list[Evidence]:
     return [
-        Evidence("manifest_file", path.name, str(path.relative_to(root)), 2, _rel(root, path))
+        Evidence("manifest_file", path.name, path.relative_to(root).as_posix(), 2, _rel(root, path))
         for path in _manifest_paths(root)
     ]
 
@@ -142,7 +142,7 @@ def detect_infra(root: Path) -> list[Evidence]:
     for path in _walk(root):
         if not path.is_file():
             continue
-        rel = str(path.relative_to(root))
+        rel = path.relative_to(root).as_posix()
         lower = path.name.lower()
         keys: list[str] = []
         if path.name == "Dockerfile" or lower.endswith(".dockerfile"):
@@ -174,7 +174,7 @@ def detect_test_setup(root: Path) -> list[Evidence]:
         matches = sorted(root.glob(pattern))
         if matches:
             path = matches[0]
-            out.append(Evidence("test_setup", key, str(path.relative_to(root)), 3, _rel(root, path)))
+            out.append(Evidence("test_setup", key, path.relative_to(root).as_posix(), 3, _rel(root, path)))
     if (root / "cypress").is_dir():
         out.append(Evidence("test_setup", "cypress", "cypress", 3, _rel(root, root / "cypress")))
     if (root / "pytest.ini").exists():

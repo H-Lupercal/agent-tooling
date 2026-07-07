@@ -36,7 +36,7 @@ def ensure_gitignore(root: Path, extra: list[str] = []) -> list[str]:
         if out and out[-1] != "":
             out.append("")
         out.extend(block)
-    path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8", newline="\n")
     return entries
 
 

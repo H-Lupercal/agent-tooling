@@ -23,15 +23,16 @@ def copy_fixture_repo(name: str, tmpdir: str | Path, git: bool = True) -> Path:
 def fixture_state_env(root: Path) -> dict[str, str]:
     state = FIXTURES / "state"
     fake = ROOT / "tests" / "fake_bin"
+    suffix = ".cmd" if os.name == "nt" else ""
     env = os.environ.copy()
     env.update(
         {
             "TOOLBELT_CLAUDE_STATE": str(state / "claude_state.json"),
             "TOOLBELT_CLAUDE_PLUGINS": str(state / "installed_plugins.json"),
             "TOOLBELT_CODEX_CONFIG": str(state / "codex_config.toml"),
-            "TOOLBELT_CLAUDE_BIN": str(fake / "claude"),
-            "TOOLBELT_CODEX_BIN": str(fake / "codex"),
-            "PATH": f"{fake}:{env.get('PATH', '')}",
+            "TOOLBELT_CLAUDE_BIN": str(fake / f"claude{suffix}"),
+            "TOOLBELT_CODEX_BIN": str(fake / f"codex{suffix}"),
+            "PATH": f"{fake}{os.pathsep}{env.get('PATH', '')}",
         }
     )
     return env

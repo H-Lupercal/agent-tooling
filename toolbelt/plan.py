@@ -254,7 +254,7 @@ def write_plan(plan: Plan, path: Path) -> None:
     import json
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(plan_to_json(plan), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(plan_to_json(plan), indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
 def read_plan(path: Path) -> Plan:

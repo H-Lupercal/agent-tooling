@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tomllib
 from datetime import datetime, timezone
@@ -95,7 +96,7 @@ def _write_managed_block(target: Path, marker: str, body: str) -> None:
             out.append("")
         out.extend(block)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+    target.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8", newline="\n")
 
 
 def _remove_managed_block(target: Path, marker: str) -> None:
@@ -115,12 +116,12 @@ def _remove_managed_block(target: Path, marker: str) -> None:
             out.append(existing[idx])
             idx += 1
     text = "\n".join(out).rstrip()
-    target.write_text(text + "\n" if text else "", encoding="utf-8")
+    target.write_text(text + "\n" if text else "", encoding="utf-8", newline="\n")
 
 
 def _append_log(path: Path, obj: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
+    with path.open("a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(obj, sort_keys=True) + "\n")
 
 
@@ -144,7 +145,7 @@ def run_step(step: ApplyStep, *, cwd: Path, dry_run: bool, log: Path, action_id:
                 actual = hashlib.sha256(target.read_bytes()).hexdigest()
                 rc = 0 if actual == step.scaffold_sha256 else 3
             else:
-                target.write_text(step.scaffold_body, encoding="utf-8")
+                target.write_text(step.scaffold_body, encoding="utf-8", newline="\n")
                 rc = 0
         else:
             if target.exists():
@@ -164,8 +165,10 @@ def run_step(step: ApplyStep, *, cwd: Path, dry_run: bool, log: Path, action_id:
             _remove_managed_block(target, step.block_marker)
         rc = 0
     else:
+        argv = list(step.argv)
+        exe = shutil.which(argv[0]) or argv[0]
         try:
-            result = subprocess.run(list(step.argv), cwd=cwd, capture_output=True, text=True, timeout=180)
+            result = subprocess.run([exe, *argv[1:]], cwd=cwd, capture_output=True, text=True, timeout=180)
             stdout = result.stdout[:10000]
             stderr = result.stderr[:10000]
             rc = result.returncode
