@@ -43,7 +43,7 @@ def action_card(action: Action) -> str:
         if step.argv:
             lines.append(f"  - {' '.join(step.argv)}")
         else:
-            lines.append(f"  - {step.apply_via} {step.scaffold_path}")
+            lines.append(f"  - {step.apply_via} {step.scaffold_path or step.block_path}")
     if not action.steps and action.verify_argv:
         lines.append(f"  - verify: {' '.join(action.verify_argv)}")
     lines.append(f"rollback: {action.rollback}")

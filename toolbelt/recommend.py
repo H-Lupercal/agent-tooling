@@ -14,7 +14,7 @@ def _first_glob(root: Path, patterns: tuple[str, ...], weight: int) -> Evidence 
         matches = sorted(root.glob(pattern))
         if matches:
             path = matches[0]
-            return Evidence("file_glob", pattern, str(path.relative_to(root)), weight, str(path.resolve()))
+            return Evidence("file_glob", pattern, str(path.relative_to(root)), weight, str(path.relative_to(root)))
     return None
 
 

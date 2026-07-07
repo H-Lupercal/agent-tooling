@@ -211,6 +211,24 @@ remove it.
 - If a managed tool misbehaves, run `toolbelt verify --tool <id>`.
 - If the stack changed, run `toolbelt reconcile` to realign the toolchain.
 """
+  [[tool.apply]]
+  apply_via = "managed_block"
+  harness = "codex"
+  block_path = "AGENTS.md"
+  block_body = """
+## Toolbelt-managed toolchain
+
+This repo's AI toolchain is managed by `toolbelt`. The manifest at
+`.toolbelt/manifest.json` records every managed MCP server, plugin, skill, LSP,
+and dev tool: why it was installed, what secrets it needs, and how to remove it.
+
+- Prefer `toolbelt plan` + `toolbelt apply` over adding MCP servers by hand;
+  check the manifest first.
+- Never commit `.toolbelt/secrets.env`, `.toolbelt/state/`, or
+  `.toolbelt/plan.json` (the managed `.gitignore` block covers them).
+- If a managed tool misbehaves, run `toolbelt verify --tool <id>`.
+- If the stack changed, run `toolbelt reconcile` to realign the toolchain.
+"""
 
 [[tool]]
 id = "lsp-pyright"

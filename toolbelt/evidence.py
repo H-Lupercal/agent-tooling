@@ -46,8 +46,8 @@ def _walk(root: Path):
         yield path
 
 
-def _rel_source(root: Path, path: Path) -> str:
-    return str(path.resolve())
+def _rel(root: Path, path: Path) -> str:
+    return str(path.relative_to(root))
 
 
 def _dep_name(spec: str) -> str:
@@ -55,20 +55,18 @@ def _dep_name(spec: str) -> str:
 
 
 def _manifest_paths(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
     paths: list[Path] = []
-    for child in root.iterdir() if root.exists() else []:
-        if child.name in SKIP_DIRS:
-            continue
-        candidates = [child] if child.is_file() else list(child.iterdir()) if child.is_dir() else []
-        for path in candidates:
-            if path.name in MANIFEST_FILES or fnmatch.fnmatch(path.name, "*.csproj"):
-                paths.append(path)
+    for path in _walk(root):
+        if path.is_file() and (path.name in MANIFEST_FILES or fnmatch.fnmatch(path.name, "*.csproj")):
+            paths.append(path)
     return sorted(set(paths))
 
 
 def detect_manifest_files(root: Path) -> list[Evidence]:
     return [
-        Evidence("manifest_file", path.name, str(path.relative_to(root)), 2, _rel_source(root, path))
+        Evidence("manifest_file", path.name, str(path.relative_to(root)), 2, _rel(root, path))
         for path in _manifest_paths(root)
     ]
 
@@ -82,24 +80,24 @@ def detect_manifest_deps(root: Path) -> list[Evidence]:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 for section in ("dependencies", "devDependencies"):
                     for dep, spec in (data.get(section) or {}).items():
-                        evidence.append(Evidence("manifest_dep", f"{name}:{dep.lower()}", str(spec), 3, str(path.resolve())))
+                        evidence.append(Evidence("manifest_dep", f"{name}:{dep.lower()}", str(spec), 3, _rel(root, path)))
             elif name == "pyproject.toml":
                 data = tomllib.loads(path.read_text(encoding="utf-8"))
                 for spec in (data.get("project") or {}).get("dependencies") or []:
                     dep = _dep_name(spec)
                     if dep:
-                        evidence.append(Evidence("manifest_dep", f"{name}:{dep}", spec, 3, str(path.resolve())))
+                        evidence.append(Evidence("manifest_dep", f"{name}:{dep}", spec, 3, _rel(root, path)))
                 poetry = (((data.get("tool") or {}).get("poetry") or {}).get("dependencies") or {})
                 for dep, spec in poetry.items():
                     if dep.lower() != "python":
-                        evidence.append(Evidence("manifest_dep", f"{name}:{dep.lower()}", str(spec), 3, str(path.resolve())))
+                        evidence.append(Evidence("manifest_dep", f"{name}:{dep.lower()}", str(spec), 3, _rel(root, path)))
             elif name == "requirements.txt":
                 for line in path.read_text(encoding="utf-8").splitlines():
                     stripped = line.strip()
                     if stripped and not stripped.startswith("#"):
                         dep = _dep_name(stripped)
                         if dep:
-                            evidence.append(Evidence("manifest_dep", f"{name}:{dep}", stripped, 3, str(path.resolve())))
+                            evidence.append(Evidence("manifest_dep", f"{name}:{dep}", stripped, 3, _rel(root, path)))
             elif name == "go.mod":
                 in_block = False
                 for line in path.read_text(encoding="utf-8").splitlines():
@@ -112,14 +110,14 @@ def detect_manifest_deps(root: Path) -> list[Evidence]:
                         continue
                     if s.startswith("require "):
                         dep = s.split()[1]
-                        evidence.append(Evidence("manifest_dep", f"{name}:{dep}", s, 3, str(path.resolve())))
+                        evidence.append(Evidence("manifest_dep", f"{name}:{dep}", s, 3, _rel(root, path)))
                     elif in_block and s:
                         dep = s.split()[0]
-                        evidence.append(Evidence("manifest_dep", f"{name}:{dep}", s, 3, str(path.resolve())))
+                        evidence.append(Evidence("manifest_dep", f"{name}:{dep}", s, 3, _rel(root, path)))
             elif name == "Cargo.toml":
                 data = tomllib.loads(path.read_text(encoding="utf-8"))
                 for dep, spec in (data.get("dependencies") or {}).items():
-                    evidence.append(Evidence("manifest_dep", f"{name}:{dep.lower()}", str(spec), 3, str(path.resolve())))
+                    evidence.append(Evidence("manifest_dep", f"{name}:{dep.lower()}", str(spec), 3, _rel(root, path)))
         except (json.JSONDecodeError, tomllib.TOMLDecodeError, OSError, IndexError):
             continue
     return evidence
@@ -134,7 +132,7 @@ def detect_lang_ext(root: Path) -> list[Evidence]:
             counts[lang] = counts.get(lang, 0) + 1
             first.setdefault(lang, path)
     return [
-        Evidence("lang_ext", lang, f"{count} files", 1, str(first[lang].resolve()))
+        Evidence("lang_ext", lang, f"{count} files", 1, _rel(root, first[lang]))
         for lang, count in sorted(counts.items())
     ]
 
@@ -161,7 +159,7 @@ def detect_infra(root: Path) -> list[Evidence]:
         if path.name == "Makefile":
             keys.append("make")
         for key in keys:
-            out.append(Evidence("infra", key, rel, 2, str(path.resolve())))
+            out.append(Evidence("infra", key, rel, 2, _rel(root, path)))
     return out
 
 
@@ -176,17 +174,17 @@ def detect_test_setup(root: Path) -> list[Evidence]:
         matches = sorted(root.glob(pattern))
         if matches:
             path = matches[0]
-            out.append(Evidence("test_setup", key, str(path.relative_to(root)), 3, str(path.resolve())))
+            out.append(Evidence("test_setup", key, str(path.relative_to(root)), 3, _rel(root, path)))
     if (root / "cypress").is_dir():
-        out.append(Evidence("test_setup", "cypress", "cypress", 3, str((root / "cypress").resolve())))
+        out.append(Evidence("test_setup", "cypress", "cypress", 3, _rel(root, root / "cypress")))
     if (root / "pytest.ini").exists():
-        out.append(Evidence("test_setup", "pytest", "pytest.ini", 3, str((root / "pytest.ini").resolve())))
+        out.append(Evidence("test_setup", "pytest", "pytest.ini", 3, _rel(root, root / "pytest.ini")))
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
         try:
             data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
             if (((data.get("tool") or {}).get("pytest") or {}).get("ini_options")) is not None:
-                out.append(Evidence("test_setup", "pytest", "pyproject.toml", 3, str(pyproject.resolve())))
+                out.append(Evidence("test_setup", "pytest", "pyproject.toml", 3, _rel(root, pyproject)))
         except tomllib.TOMLDecodeError:
             pass
     return out
@@ -199,7 +197,7 @@ def detect_existing_tools(root: Path) -> list[Evidence]:
         try:
             data = json.loads(project.read_text(encoding="utf-8"))
             for name in sorted((data.get("mcpServers") or {}).keys()):
-                out.append(Evidence("existing_tool", f"claude_mcp:{name}", ".mcp.json", 0, str(project.resolve())))
+                out.append(Evidence("existing_tool", f"claude_mcp:{name}", ".mcp.json", 0, _rel(root, project)))
         except json.JSONDecodeError:
             pass
     from toolbelt import harness

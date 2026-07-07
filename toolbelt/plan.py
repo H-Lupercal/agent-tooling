@@ -39,6 +39,15 @@ def _reverse_steps(record: dict) -> tuple[ApplyStep, ...]:
                     scaffold_sha256=str(executed.get("scaffold_sha256", "")),
                 )
             )
+        elif executed.get("apply_via") == "managed_block":
+            steps.append(
+                ApplyStep(
+                    "managed_block_remove",
+                    str(executed.get("harness", "")),
+                    block_path=str(executed.get("block_path", "")),
+                    block_marker=str(executed.get("block_marker", "")),
+                )
+            )
         else:
             steps.append(
                 ApplyStep(
@@ -117,7 +126,7 @@ def build_plan(
         rec = by_rec.get(tool_id)
         record = tools_manifest.get(tool_id)
         if record is None or record.get("state") == "removed":
-            steps = concrete_steps(tool, tool.install_scope if tool.kind in {"mcp_server", "connector"} else tool.install_scope)
+            steps = concrete_steps(tool, tool.install_scope)
             buckets["install"].append(_action("install", tool, rec, project_root, steps))
         elif record.get("state") == "installed" and record.get("catalog_version") != tool.catalog_version:
             steps = tuple(dataclasses.replace(s, tolerate_failure=True) for s in _reverse_steps(record)) + concrete_steps(
@@ -159,6 +168,9 @@ def _step_to_json(step: ApplyStep) -> dict:
         "scaffold_sha256": step.scaffold_sha256,
         "rollback_argv": list(step.rollback_argv),
         "tolerate_failure": step.tolerate_failure,
+        "block_path": step.block_path,
+        "block_body": step.block_body,
+        "block_marker": step.block_marker,
     }
 
 
@@ -205,6 +217,9 @@ def _step_from_json(obj: dict) -> ApplyStep:
         scaffold_sha256=str(obj.get("scaffold_sha256", "")),
         rollback_argv=tuple(str(v) for v in obj.get("rollback_argv", [])),
         tolerate_failure=bool(obj.get("tolerate_failure", False)),
+        block_path=str(obj.get("block_path", "")),
+        block_body=str(obj.get("block_body", "")),
+        block_marker=str(obj.get("block_marker", "")),
     )
 
 

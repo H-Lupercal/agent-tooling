@@ -55,7 +55,67 @@ def concrete_steps(tool: Tool, scope: str) -> tuple[ApplyStep, ...]:
                     scaffold_sha256=sha,
                 )
             )
+        elif step.apply_via == "managed_block":
+            steps.append(
+                ApplyStep(
+                    step.apply_via,
+                    step.harness,
+                    block_path=step.block_path,
+                    block_body=step.block_body,
+                    block_marker=tool.id,
+                )
+            )
     return tuple(steps)
+
+
+def _managed_markers(marker: str) -> tuple[str, str]:
+    return (f"<!-- toolbelt:managed:{marker} -->", f"<!-- /toolbelt:managed:{marker} -->")
+
+
+def _write_managed_block(target: Path, marker: str, body: str) -> None:
+    start, end = _managed_markers(marker)
+    block = [start, *body.splitlines(), end]
+    existing = target.read_text(encoding="utf-8").splitlines() if target.exists() else []
+    out: list[str] = []
+    idx = 0
+    replaced = False
+    while idx < len(existing):
+        if existing[idx].strip() == start:
+            while idx < len(existing) and existing[idx].strip() != end:
+                idx += 1
+            if idx < len(existing):
+                idx += 1
+            out.extend(block)
+            replaced = True
+        else:
+            out.append(existing[idx])
+            idx += 1
+    if not replaced:
+        if out and out[-1] != "":
+            out.append("")
+        out.extend(block)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+
+
+def _remove_managed_block(target: Path, marker: str) -> None:
+    if not target.exists():
+        return
+    start, end = _managed_markers(marker)
+    existing = target.read_text(encoding="utf-8").splitlines()
+    out: list[str] = []
+    idx = 0
+    while idx < len(existing):
+        if existing[idx].strip() == start:
+            while idx < len(existing) and existing[idx].strip() != end:
+                idx += 1
+            if idx < len(existing):
+                idx += 1
+        else:
+            out.append(existing[idx])
+            idx += 1
+    text = "\n".join(out).rstrip()
+    target.write_text(text + "\n" if text else "", encoding="utf-8")
 
 
 def _append_log(path: Path, obj: dict) -> None:
@@ -69,8 +129,8 @@ def run_step(step: ApplyStep, *, cwd: Path, dry_run: bool, log: Path, action_id:
         if step.argv:
             print(" ".join(step.argv))
         else:
-            print(f"{step.apply_via} {step.scaffold_path}")
-        _append_log(log, {"ts": _now(), "action_id": action_id, "apply_via": step.apply_via, "argv": list(step.argv), "scaffold_path": step.scaffold_path, "rc": 0, "dry_run": True})
+            print(f"{step.apply_via} {step.scaffold_path or step.block_path}")
+        _append_log(log, {"ts": _now(), "action_id": action_id, "apply_via": step.apply_via, "argv": list(step.argv), "scaffold_path": step.scaffold_path, "block_path": step.block_path, "rc": 0, "dry_run": True})
         return 0
 
     stdout = ""
@@ -96,6 +156,13 @@ def run_step(step: ApplyStep, *, cwd: Path, dry_run: bool, log: Path, action_id:
                     rc = 3
             else:
                 rc = 0
+    elif step.apply_via in {"managed_block", "managed_block_remove"}:
+        target = Path(cwd) / step.block_path
+        if step.apply_via == "managed_block":
+            _write_managed_block(target, step.block_marker, step.block_body)
+        else:
+            _remove_managed_block(target, step.block_marker)
+        rc = 0
     else:
         try:
             result = subprocess.run(list(step.argv), cwd=cwd, capture_output=True, text=True, timeout=180)
@@ -117,6 +184,7 @@ def run_step(step: ApplyStep, *, cwd: Path, dry_run: bool, log: Path, action_id:
             "apply_via": step.apply_via,
             "argv": list(step.argv),
             "scaffold_path": step.scaffold_path,
+            "block_path": step.block_path,
             "rc": rc,
             "stdout": stdout,
             "stderr": stderr,

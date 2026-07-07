@@ -7,8 +7,9 @@ import os
 import sys
 from pathlib import Path
 
+from toolbelt import discover
 from toolbelt.brief import brief_goals, brief_stack, copy_brief, find_brief, is_greenfield, parse_brief, sha256_file
-from toolbelt.catalog import CatalogError, load_catalog
+from toolbelt.catalog import CatalogError, load_catalog, safety_lint
 from toolbelt.evidence import evidence_sha256, scan
 from toolbelt.guard import audit, ensure_gitignore
 from toolbelt.harness import live_state
@@ -181,7 +182,7 @@ def _cmd_reconcile(args) -> int:
 
 def _cmd_remove(args) -> int:
     from toolbelt.apply import apply_plan
-    from toolbelt.models import Action
+    from toolbelt.models import Action, Plan
     from toolbelt.plan import _reverse_steps
 
     root = _root(args.path)
@@ -213,7 +214,8 @@ def _cmd_remove(args) -> int:
     else:
         response = input("[a1] remove {tool} — approve? [y]es/[n]o: ".format(tool=args.tool)).strip().lower()
         action = dataclasses.replace(action, approved=response == "y")
-    summary = apply_plan(dataclasses.replace(__import__("toolbelt.models").models.Plan(1, "", str(root), manifest.get("mode", ""), (action,))), root, dry_run=args.dry_run)
+    plan = Plan(1, "", str(root), manifest.get("mode", ""), (action,))
+    summary = apply_plan(plan, root, dry_run=args.dry_run)
     print(json.dumps(summary, sort_keys=True))
     return 1 if summary["failed"] else 0
 
@@ -231,14 +233,75 @@ def _cmd_verify(args) -> int:
             continue
         import subprocess
 
-        result = subprocess.run(argv, cwd=root, capture_output=True, text=True)
-        rec.setdefault("verify", {})["last_status"] = "passed" if result.returncode == 0 else "failed"
-        rec["state"] = "installed" if result.returncode == 0 else "verify_failed"
-        failed = failed or result.returncode != 0
+        try:
+            result = subprocess.run(argv, cwd=root, capture_output=True, text=True, timeout=180)
+            ok = result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            ok = False
+        rec.setdefault("verify", {})["last_status"] = "passed" if ok else "failed"
+        rec["state"] = "installed" if ok else "verify_failed"
+        failed = failed or not ok
     save_manifest(root, manifest)
     if args.json:
         print(json.dumps(manifest.get("tools", {}), sort_keys=True))
     return 1 if failed else 0
+
+
+def _cmd_discover(args) -> int:
+    root = _root(args.path)
+    catalog = load_catalog()
+    manifest = load_manifest(root)
+    mode = _mode(root, manifest)
+    evidence = scan(root)
+    brief = find_brief(root)
+    if brief:
+        evidence.extend(parse_brief(brief, catalog))
+    gap_list = discover.gaps(catalog, evidence)
+    if args.json:
+        print(json.dumps(discover.discovery_json(mode, catalog, evidence, gap_list, brief), sort_keys=True))
+    else:
+        print(discover.render_discovery(root, mode, catalog, evidence, gap_list, brief))
+    return 0
+
+
+def _cmd_validate(args) -> int:
+    root = _root(args.path)
+    target = Path(args.target) if args.target else root / "catalog" / "proposed"
+    if target.is_file():
+        files = [target]
+    elif target.is_dir():
+        files = sorted(target.glob("*.toml"))
+    else:
+        files = []
+    if not files:
+        print(f"no proposal files at {target}")
+        return 0
+
+    live = load_catalog()
+    existing_ids = frozenset(t.id for t in live)
+    existing_mcp = frozenset(
+        (s.apply_via, t.mcp_name)
+        for t in live
+        for s in t.apply
+        if s.apply_via in {"claude_mcp", "codex_mcp"} and t.mcp_name
+    )
+    failed = False
+    for path in files:
+        try:
+            tools = load_catalog(path)
+        except CatalogError as exc:
+            print(f"FAIL {path}: {exc}", file=sys.stderr)
+            failed = True
+            continue
+        issues = safety_lint(tools, existing_ids=existing_ids, existing_mcp=existing_mcp)
+        if issues:
+            print(f"FAIL {path}:")
+            for issue in issues:
+                print(f"  - {issue}")
+            failed = True
+        else:
+            print(f"OK {path}")
+    return 2 if failed else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -252,6 +315,11 @@ def main(argv: list[str] | None = None) -> int:
     add_path(scan_p)
     scan_p.add_argument("--json", action="store_true")
     scan_p.set_defaults(func=_cmd_scan)
+
+    discover_p = sub.add_parser("discover")
+    add_path(discover_p)
+    discover_p.add_argument("--json", action="store_true")
+    discover_p.set_defaults(func=_cmd_discover)
 
     init_p = sub.add_parser("init")
     add_path(init_p)
@@ -303,6 +371,11 @@ def main(argv: list[str] | None = None) -> int:
     add_path(guard_p)
     guard_p.add_argument("--fix", action="store_true")
     guard_p.set_defaults(func=_cmd_guard)
+
+    validate_p = sub.add_parser("validate")
+    add_path(validate_p)
+    validate_p.add_argument("target", nargs="?")
+    validate_p.set_defaults(func=_cmd_validate)
 
     try:
         args = parser.parse_args(argv)

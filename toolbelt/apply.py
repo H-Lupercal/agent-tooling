@@ -101,11 +101,11 @@ def _record(action: Action, catalog_by_id: dict[str, Tool], verify_status: str) 
             "rollback_argv": list(s.rollback_argv),
             "scaffold_path": s.scaffold_path,
             "scaffold_sha256": s.scaffold_sha256,
+            "block_path": s.block_path,
+            "block_marker": s.block_marker,
         }
         for s in action.steps
     ]
-    root = Path(action.install_scope)
-    del root
     return {
         "state": "installed" if verify_status in {"passed", "never"} else "verify_failed",
         "kind": action.kind,
@@ -132,7 +132,7 @@ def apply_plan(plan: Plan, root: Path, *, dry_run: bool, catalog: list[Tool] | N
                     if step.argv:
                         print(" ".join(step.argv))
                     else:
-                        print(f"{step.apply_via} {step.scaffold_path}")
+                        print(f"{step.apply_via} {step.scaffold_path or step.block_path}")
         return {"applied": [], "skipped": [a.id for a in plan.actions if not a.approved], "failed": []}
 
     catalog_by_id = {tool.id: tool for tool in (catalog or [])}

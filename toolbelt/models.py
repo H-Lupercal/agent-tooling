@@ -26,7 +26,16 @@ EVIDENCE_TYPE = {
     "file_glob",
 }
 ACTION_OP = {"install", "update", "verify", "remove"}
-APPLY_VIA = {"claude_mcp", "codex_mcp", "claude_plugin", "scaffold", "scaffold_remove", "command"}
+APPLY_VIA = {
+    "claude_mcp",
+    "codex_mcp",
+    "claude_plugin",
+    "scaffold",
+    "scaffold_remove",
+    "command",
+    "managed_block",
+    "managed_block_remove",
+}
 MANIFEST_STATE = {"planned", "installed", "verify_failed", "removed", "unknown"}
 SKIP_DIRS = {".git", ".toolbelt", "node_modules", "dist", "build", ".venv", "__pycache__"}
 
@@ -51,6 +60,8 @@ class CatalogStep:
     rollback_argv: tuple[str, ...] = ()
     scaffold_path: str = ""
     scaffold_body: str = ""
+    block_path: str = ""
+    block_body: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,6 +74,9 @@ class ApplyStep:
     scaffold_sha256: str = ""
     rollback_argv: tuple[str, ...] = ()
     tolerate_failure: bool = False
+    block_path: str = ""
+    block_body: str = ""
+    block_marker: str = ""
 
 
 @dataclass(frozen=True)

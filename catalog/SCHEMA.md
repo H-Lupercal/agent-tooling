@@ -34,7 +34,7 @@ Each tool must have at least one `[[tool.match]]` group. A group may contain:
 
 Each tool must have at least one `[[tool.apply]]` step. Common fields:
 
-- `apply_via`: one of `claude_mcp`, `codex_mcp`, `claude_plugin`, `scaffold`, or `command`.
+- `apply_via`: one of `claude_mcp`, `codex_mcp`, `claude_plugin`, `scaffold`, `managed_block`, or `command`.
 - `harness`: `claude_code`, `codex`, or empty for direct commands.
 
 Step-specific fields:
@@ -42,6 +42,19 @@ Step-specific fields:
 - `claude_mcp` and `codex_mcp`: `mcp_command`, optional `mcp_args`.
 - `claude_plugin`: `plugin_ref`.
 - `scaffold`: `scaffold_path`, `scaffold_body`.
+- `managed_block`: `block_path`, `block_body` (inserts an idempotent, tool-id-delimited block into a possibly-existing file; non-destructive).
 - `command`: `command_argv`, optional `rollback_argv`.
 
-Validation rejects duplicate ids, duplicate `(apply_via, mcp_name)` claims, unknown keys, missing match/apply groups, missing required step fields, and values outside the closed vocabularies.
+Validation rejects duplicate ids, duplicate `(apply_via, mcp_name)` claims, unknown keys, missing match/apply groups, missing required step fields (including `block_path` and `block_body` for `managed_block`), and values outside the closed vocabularies.
+
+## Proposals & Discovery
+
+Agent-drafted entries from `toolbelt discover` are staged in
+`catalog/proposed/`, one `<id>.toml` per tool. Staged proposals are not loaded by
+Toolbelt until a human merges them into `catalog/catalog.toml`.
+
+Run `toolbelt validate [PATH]` before review. Validation runs the normal catalog
+schema checks plus safety lint: proposals must use `approved = false`, include
+provenance, homepage, permissions, and `catalog_version`, avoid secret values in
+`mcp_args` or `command_argv`, and avoid ids or MCP names already claimed by the
+live catalog.
