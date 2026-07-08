@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from tests.helpers import FIXTURES, ROOT, copy_fixture_repo, fixture_state_env
 
@@ -154,6 +154,16 @@ class CoreBehaviorTests(unittest.TestCase):
 
 
 class CliSmokeTests(unittest.TestCase):
+    def _has_command(self, stdout: str, executable: str, words: list[str]) -> bool:
+        for line in stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 1 + len(words):
+                continue
+            names = {Path(parts[0]).stem, PureWindowsPath(parts[0]).stem}
+            if executable in names and parts[1 : 1 + len(words)] == words:
+                return True
+        return False
+
     def test_scan_plan_apply_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = copy_fixture_repo("node_react", td)
@@ -188,7 +198,7 @@ class CliSmokeTests(unittest.TestCase):
                 capture_output=True,
                 check=True,
             )
-            self.assertIn("claude mcp add", apply.stdout)
+            self.assertTrue(self._has_command(apply.stdout, "claude", ["mcp", "add"]))
             self.assertFalse(log.exists())
             self.assertEqual(before, (root / ".toolbelt" / "manifest.json").read_bytes())
 
