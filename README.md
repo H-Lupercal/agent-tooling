@@ -6,14 +6,27 @@ approval-gated plan, and applies approved MCP servers, connectors, Claude Code
 plugins, repo-committed skills, language servers, and dev tools across the
 Claude Code and Codex harnesses.
 
-Runtime constraints are intentionally small: Python 3.11 or newer, standard
-library only, no third-party packages, no build step. The `python -m toolbelt`
-CLI and the unit-test suite (`python -m unittest discover -s tests`) run on
-Linux, macOS, and Windows. The `make` targets and the `*.sh` helpers
-(`tests/e2e_smoke.sh`, `scripts/probe_cli_output.sh`) need a POSIX shell; on
-Windows run them under Git Bash or WSL, or use the native commands directly:
-`python -m compileall toolbelt` (lint) and `python -m unittest discover -s tests`
-(test).
+Toolbelt requires Python 3.11 or newer plus Pydantic and PathSpec. It is built as
+a wheel and source distribution and exposes the `toolbelt` console entry point.
+The package and test suite run on Linux, macOS, and Windows. The `make` targets
+and `*.sh` helpers (`tests/e2e_smoke.sh`, `scripts/probe_cli_output.sh`) need a
+POSIX shell; on Windows run them under Git Bash or WSL, or use the native
+commands directly: `python -m compileall src/toolbelt` and `python -m pytest`.
+
+## Installation
+
+Install from a source checkout:
+
+```sh
+python -m pip install .
+toolbelt --help
+```
+
+Contributors should install the development dependencies in editable mode:
+
+```sh
+python -m pip install -e ".[dev]"
+```
 
 ## Commands
 
@@ -94,10 +107,11 @@ managed block in `AGENTS.md`.
 
 ## Catalog
 
-The seed catalog lives at `catalog/catalog.toml`; its schema is documented in
-`catalog/SCHEMA.md`. The catalog is read-only TOML; all Toolbelt-owned runtime
-state is JSON. Point Toolbelt at a different catalog with
-`TOOLBELT_CATALOG=/path/to/catalog.toml`.
+The seed catalog lives at `src/toolbelt/data/catalog.toml` in the source tree
+and is bundled as an installed package resource. Its authoring schema is
+documented in `catalog/SCHEMA.md`. The catalog is read-only TOML; all
+Toolbelt-owned runtime state is JSON. Point Toolbelt at a different local
+catalog with `TOOLBELT_CATALOG=/path/to/catalog.toml`.
 
 ## Discovery
 
@@ -108,8 +122,8 @@ the research and writes drafts to `catalog/proposed/<id>.toml`. `toolbelt
 validate` checks those drafts with schema validation plus safety lint:
 `approved` must be false, args must not contain secret values, and
 provenance/homepage/permissions must be present. A human then merges a validated
-draft into `catalog/catalog.toml` as `approved = false` and flips it to `true`
-once vetted.
+draft into `src/toolbelt/data/catalog.toml` as `approved = false` and flips it
+to `true` once vetted.
 
 ## Environment variables
 
@@ -125,8 +139,12 @@ once vetted.
 ## Development
 
 ```sh
-make test    # python3 -m unittest discover -s tests
-make lint    # python3 -m py_compile toolbelt/*.py
+python -m pip install -e ".[dev]"
+make test    # python -m pytest
+make lint    # python -m ruff check .
+make format-check
+make typecheck
+make build
 make probe   # scripts/probe_cli_output.sh — records live CLI facts
 make e2e     # runs tests/e2e_smoke.sh when RUN_LIVE=1; otherwise prints a reminder
 ```
