@@ -129,6 +129,9 @@ def test_installed_wheel_contains_operational_assets(
     assert "FileNotFoundError" not in result.stderr
     assert "conductor.toml" in result.stdout
     assert asset_marker in result.stdout
+    assert "conductor status" in result.stdout
+    assert "conductor report" in result.stdout
+    assert "python3 -m conductor." not in result.stdout
 
 
 def test_checkout_launch_paths_use_the_installed_console_entrypoint() -> None:
@@ -146,3 +149,6 @@ def test_checkout_launch_paths_use_the_installed_console_entrypoint() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     assert "PYTHONPATH=" not in readme
     assert "pip install -e '.[dev]'" in readme
+    assert "config/conductor.toml" not in readme
+    assert "compileall conductor" not in readme
+    assert "compileall src/conductor" in readme

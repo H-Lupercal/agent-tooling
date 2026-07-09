@@ -11,8 +11,9 @@ class InstallTests(unittest.TestCase):
         project_root = Path("/tmp/public checkout/codex-conductor")
         policy = _render_policy(project_root)
 
-        self.assertIn("python3 -m conductor.status --pretty", policy)
-        self.assertIn("python3 -m conductor.report --last", policy)
+        self.assertIn("conductor status --pretty", policy)
+        self.assertIn("conductor report --last", policy)
+        self.assertNotIn("python3 -m conductor.", policy)
         self.assertNotIn("PYTHONPATH=", policy)
         self.assertNotIn(str(project_root), policy)
         self.assertNotIn("{{PROJECT_ROOT}}", policy)

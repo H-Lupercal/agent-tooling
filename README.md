@@ -292,8 +292,7 @@ paths, so the names apply to both providers.
 
 - `CODEX_CONDUCTOR_HOME` — state/config root; default `~/.codex/conductor`
 - `CODEX_CONDUCTOR_CONFIG` — config file path; default
-  `$CODEX_CONDUCTOR_HOME/conductor.toml`, falling back to the checkout's
-  `config/conductor.toml`
+  `$CODEX_CONDUCTOR_HOME/conductor.toml`, falling back to the packaged default
 - `CONDUCTOR_RUN_USD_CAP` — override the delegated-spawn budget for the current
   process
 - `CODEX_CONDUCTOR_SESSIONS_ROOT` — Codex rollout root; default `~/.codex/sessions`
@@ -320,7 +319,7 @@ Offline verification (no provider/API usage):
 ```bash
 cd /path/to/codex-conductor
 python3 -m unittest discover -s tests -v
-python3 -m compileall conductor
+python3 -m compileall src/conductor
 ```
 
 The live probe and smoke scripts are intentionally opt-in and may spend

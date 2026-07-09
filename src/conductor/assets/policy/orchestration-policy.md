@@ -2,7 +2,7 @@
 ## Cost-aware delegation (codex-conductor)
 
 Before spawning a subagent, run
-`python3 -m conductor.status --pretty`.
+`conductor status --pretty`.
 Choose the cheapest enabled tier that owns the task class. Keep decomposition,
 integration, final review, and high-risk work at the frontier tier.
 
@@ -26,6 +26,6 @@ high-risk work. Depth is capped at 3. If the budget hook blocks a spawn, finish
 the remaining work locally and summarize what was not delegated.
 
 At the end of every run, execute
-`python3 -m conductor.report --last`
+`conductor report --last`
 and include the table in the final response.
 <!-- <<< codex-conductor policy <<< -->
