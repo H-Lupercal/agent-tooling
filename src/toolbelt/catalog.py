@@ -67,7 +67,7 @@ def default_catalog_path() -> Path:
     override = os.environ.get("TOOLBELT_CATALOG")
     if override:
         return Path(override)
-    return Path(__file__).resolve().parents[1] / "catalog" / "catalog.toml"
+    return Path(__file__).resolve().parents[2] / "catalog" / "catalog.toml"
 
 
 def _tuple(value) -> tuple[str, ...]:

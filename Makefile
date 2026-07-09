@@ -1,10 +1,23 @@
-.PHONY: test lint probe e2e
+.PHONY: build check e2e format-check lint probe test typecheck
+
+PYTHON ?= python
 
 test:
-	python3 -m unittest discover -s tests -v
+	$(PYTHON) -m pytest
 
 lint:
-	python3 -m py_compile toolbelt/*.py
+	$(PYTHON) -m ruff check .
+
+format-check:
+	$(PYTHON) -m ruff format --check .
+
+typecheck:
+	$(PYTHON) -m pyright
+
+build:
+	$(PYTHON) -m build
+
+check: format-check lint typecheck test
 
 probe:
 	scripts/probe_cli_output.sh
