@@ -7,7 +7,7 @@ from tests.helpers import restore_env, set_env, write_config
 
 
 CLAUDE_CONFIG = """
-schema_version = 1
+schema_version = 2
 
 [budget]
 run_usd_cap = 10.00
@@ -18,48 +18,55 @@ enforce = true
 max_depth = 2
 require_strictly_cheaper = true
 same_tier_spawns_from_root_max = 2
+minimum_mode = "admission"
 
-[[tier]]
+[[tiers]]
 name = "frontier"
 model = "claude-opus-4-8"
 reasoning_effort = "high"
 enabled = "always"
-input_usd_per_mtok = 15.0
-cached_input_usd_per_mtok = 1.5
-output_usd_per_mtok = 75.0
 relative_cost_weight = 100
 est_task_usd = 2.00
 max_concurrent = 2
 may_spawn = true
 task_classes = ["architecture", "high_risk", "integration", "review_gate"]
+[tiers.pricing]
+input_usd_per_mtok = 15.0
+cache_read_usd_per_mtok = 1.5
+cache_write_usd_per_mtok = 18.75
+output_usd_per_mtok = 75.0
 
-[[tier]]
+[[tiers]]
 name = "standard"
 model = "claude-sonnet-5"
 reasoning_effort = "medium"
 enabled = "always"
-input_usd_per_mtok = 3.0
-cached_input_usd_per_mtok = 0.3
-output_usd_per_mtok = 15.0
 relative_cost_weight = 25
 est_task_usd = 0.60
 max_concurrent = 4
 may_spawn = false
 task_classes = ["implementation", "refactor", "debug", "cross_module_change"]
+[tiers.pricing]
+input_usd_per_mtok = 3.0
+cache_read_usd_per_mtok = 0.3
+cache_write_usd_per_mtok = 3.75
+output_usd_per_mtok = 15.0
 
-[[tier]]
+[[tiers]]
 name = "mini"
 model = "claude-haiku-4-5"
 reasoning_effort = "medium"
 enabled = "always"
-input_usd_per_mtok = 1.0
-cached_input_usd_per_mtok = 0.1
-output_usd_per_mtok = 5.0
 relative_cost_weight = 6
 est_task_usd = 0.15
 max_concurrent = 6
 may_spawn = false
 task_classes = ["tests", "docs", "mechanical_edit", "rename", "config_change", "search", "summarize", "boilerplate", "formatting", "data_extraction"]
+[tiers.pricing]
+input_usd_per_mtok = 1.0
+cache_read_usd_per_mtok = 0.1
+cache_write_usd_per_mtok = 1.25
+output_usd_per_mtok = 5.0
 """.strip()
 
 

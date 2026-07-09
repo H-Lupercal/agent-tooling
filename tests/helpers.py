@@ -10,7 +10,7 @@ FIXTURES = PROJECT_ROOT / "tests" / "fixtures"
 
 DEFAULT_CONFIG = textwrap.dedent(
     """
-    schema_version = 1
+    schema_version = 2
 
     [budget]
     run_usd_cap = 10.00
@@ -21,62 +21,75 @@ DEFAULT_CONFIG = textwrap.dedent(
     max_depth = 3
     require_strictly_cheaper = true
     same_tier_spawns_from_root_max = 2
+    minimum_mode = "admission"
 
-    [[tier]]
+    [[tiers]]
     name = "frontier"
     model = "gpt-5.5"
     reasoning_effort = "high"
     enabled = "always"
-    input_usd_per_mtok = 10.0
-    cached_input_usd_per_mtok = 1.0
-    output_usd_per_mtok = 30.0
     relative_cost_weight = 100
     est_task_usd = 2.00
     max_concurrent = 2
     may_spawn = true
     task_classes = ["architecture", "high_risk", "integration", "review_gate"]
 
-    [[tier]]
+    [tiers.pricing]
+    input_usd_per_mtok = 10.0
+    cache_read_usd_per_mtok = 1.0
+    cache_write_usd_per_mtok = 12.5
+    output_usd_per_mtok = 30.0
+
+    [[tiers]]
     name = "standard"
     model = "gpt-5.4"
     reasoning_effort = "medium"
     enabled = "always"
-    input_usd_per_mtok = 2.0
-    cached_input_usd_per_mtok = 0.2
-    output_usd_per_mtok = 6.0
     relative_cost_weight = 25
     est_task_usd = 0.60
     max_concurrent = 4
     may_spawn = true
     task_classes = ["implementation", "refactor", "debug", "cross_module_change"]
 
-    [[tier]]
+    [tiers.pricing]
+    input_usd_per_mtok = 2.0
+    cache_read_usd_per_mtok = 0.2
+    cache_write_usd_per_mtok = 2.5
+    output_usd_per_mtok = 6.0
+
+    [[tiers]]
     name = "mini"
     model = "gpt-5.4-mini"
     reasoning_effort = "medium"
     enabled = "auto"
-    input_usd_per_mtok = 0.5
-    cached_input_usd_per_mtok = 0.05
-    output_usd_per_mtok = 1.5
     relative_cost_weight = 6
     est_task_usd = 0.15
     max_concurrent = 6
     may_spawn = true
     task_classes = ["tests", "docs", "mechanical_edit", "rename", "config_change"]
 
-    [[tier]]
+    [tiers.pricing]
+    input_usd_per_mtok = 0.5
+    cache_read_usd_per_mtok = 0.05
+    cache_write_usd_per_mtok = 0.625
+    output_usd_per_mtok = 1.5
+
+    [[tiers]]
     name = "spark"
     model = "gpt-5.3-codex-spark"
     reasoning_effort = "low"
     enabled = "auto"
-    input_usd_per_mtok = 0.2
-    cached_input_usd_per_mtok = 0.02
-    output_usd_per_mtok = 0.6
     relative_cost_weight = 2
     est_task_usd = 0.05
     max_concurrent = 8
     may_spawn = false
     task_classes = ["search", "summarize", "boilerplate", "formatting", "data_extraction"]
+
+    [tiers.pricing]
+    input_usd_per_mtok = 0.2
+    cache_read_usd_per_mtok = 0.02
+    cache_write_usd_per_mtok = 0.25
+    output_usd_per_mtok = 0.6
     """
 ).strip()
 

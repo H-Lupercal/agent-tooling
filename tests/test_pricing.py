@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import re
 from pathlib import Path
 
 from tests.helpers import DEFAULT_CONFIG, write_config
@@ -21,18 +22,12 @@ class PricingTests(unittest.TestCase):
         from conductor.config import load_ladder
         from conductor.pricing import TokenUsage, estimate_usd, pricing_verified
 
-        zero_price = DEFAULT_CONFIG.replace("input_usd_per_mtok = 10.0", "input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("cached_input_usd_per_mtok = 1.0", "cached_input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("output_usd_per_mtok = 30.0", "output_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("input_usd_per_mtok = 2.0", "input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("cached_input_usd_per_mtok = 0.2", "cached_input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("output_usd_per_mtok = 6.0", "output_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("input_usd_per_mtok = 0.5", "input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("cached_input_usd_per_mtok = 0.05", "cached_input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("output_usd_per_mtok = 1.5", "output_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("input_usd_per_mtok = 0.2", "input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("cached_input_usd_per_mtok = 0.02", "cached_input_usd_per_mtok = 0.0")
-        zero_price = zero_price.replace("output_usd_per_mtok = 0.6", "output_usd_per_mtok = 0.0")
+        zero_price = re.sub(
+            r"^(input|cache_read|cache_write|output)_usd_per_mtok = .+$",
+            lambda match: f"{match.group(1)}_usd_per_mtok = 0.0",
+            DEFAULT_CONFIG,
+            flags=re.MULTILINE,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             ladder = load_ladder(write_config(Path(tmp) / "conductor.toml", zero_price))

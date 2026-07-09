@@ -1,66 +1,104 @@
-import tempfile
-import unittest
+from __future__ import annotations
+
+import math
 from pathlib import Path
 
-from tests.helpers import DEFAULT_CONFIG, restore_env, set_env, write_config, write_models_cache
+import pytest
+from pydantic import ValidationError
+
+from tests.helpers import restore_env, set_env, write_config, write_models_cache
+from tests.test_schemas import deep_merge, valid_config
 
 
-class ConfigTests(unittest.TestCase):
-    def test_valid_default_loads_and_auto_tiers_follow_models_cache(self):
-        from conductor.config import enabled_tiers, load_ladder
+def test_valid_config_loads_and_auto_tiers_follow_models_cache(tmp_path: Path) -> None:
+    from conductor.config import enabled_tiers, load_config
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            cfg = write_config(root / "conductor.toml")
-            models = write_models_cache(root / "models.json", ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"])
+    config_path = write_config(tmp_path / "conductor.toml")
+    models = write_models_cache(
+        tmp_path / "models.json",
+        ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+    )
 
-            ladder = load_ladder(cfg)
+    config = load_config(config_path)
 
-            self.assertEqual([tier.name for tier in ladder.tiers], ["frontier", "standard", "mini", "spark"])
-            self.assertEqual(enabled_tiers(ladder, models), [0, 1, 2])
-
-    def test_env_budget_override_wins(self):
-        from conductor.config import load_ladder
-
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = write_config(Path(tmp) / "conductor.toml")
-            old = set_env(CONDUCTOR_RUN_USD_CAP="1.25")
-            try:
-                self.assertEqual(load_ladder(cfg).budget.run_usd_cap, 1.25)
-            finally:
-                restore_env(old)
-
-    def test_validation_errors_have_exact_messages(self):
-        from conductor.config import ConfigError, load_ladder
-
-        cases = [
-            ("name = \"frontier\"", "name = \"standard\"", "duplicate tier name: standard"),
-            ("model = \"gpt-5.5\"", "model = \"gpt-5.4\"", "duplicate model: gpt-5.4"),
-            ("enabled = \"always\"", "enabled = \"sometimes\"", "tier frontier: enabled must be always|auto|never"),
-            ("max_concurrent = 2", "max_concurrent = 0", "tier frontier: max_concurrent must be >= 1"),
-            ("input_usd_per_mtok = 10.0", "input_usd_per_mtok = -1.0", "tier frontier: negative price"),
-            ("run_usd_cap = 10.00", "run_usd_cap = 0", "budget.run_usd_cap must be > 0"),
-            ("max_depth = 3", "max_depth = 6", "policy.max_depth must be in 1..5"),
-            ("relative_cost_weight = 6", "relative_cost_weight = 30", "tier mini: relative_cost_weight must be lower than tier standard"),
-        ]
-        for old, new, message in cases:
-            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
-                cfg = write_config(Path(tmp) / "conductor.toml", DEFAULT_CONFIG.replace(old, new, 1))
-                with self.assertRaisesRegex(ConfigError, message):
-                    load_ladder(cfg)
-
-    def test_task_classes_must_partition(self):
-        from conductor.config import ConfigError, load_ladder
-
-        text = DEFAULT_CONFIG.replace(
-            'task_classes = ["implementation", "refactor", "debug", "cross_module_change"]',
-            'task_classes = ["implementation", "tests", "debug", "cross_module_change"]',
-        )
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = write_config(Path(tmp) / "conductor.toml", text)
-            with self.assertRaisesRegex(ConfigError, "task class tests assigned to multiple tiers: standard, mini"):
-                load_ladder(cfg)
+    assert [tier.name for tier in config.tiers] == [
+        "frontier",
+        "standard",
+        "mini",
+        "spark",
+    ]
+    assert enabled_tiers(config, models) == [0, 1, 2]
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_environment_budget_override_is_validated_strictly(tmp_path: Path) -> None:
+    from conductor.config import ConfigError, load_config
+
+    config_path = write_config(tmp_path / "conductor.toml")
+    old = set_env(CONDUCTOR_RUN_USD_CAP="1.25")
+    try:
+        assert load_config(config_path).budget.run_usd_cap == 1.25
+    finally:
+        restore_env(old)
+
+    old = set_env(CONDUCTOR_RUN_USD_CAP="nan")
+    try:
+        with pytest.raises(ConfigError, match="CONDUCTOR_RUN_USD_CAP"):
+            load_config(config_path)
+    finally:
+        restore_env(old)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"schema_version": 99},
+        {"budget": {"run_usd_cap": float("nan")}},
+        {"budget": {"run_usd_cap": math.inf}},
+        {"budget": {"warn_at_fraction": 1.5}},
+        {"budget": {"enforce": 1}},
+        {"policy": {"max_depth": -1}},
+        {"unknown": True},
+    ],
+)
+def test_invalid_config_is_rejected(change: dict[str, object]) -> None:
+    from conductor.schemas import ConductorConfig
+
+    with pytest.raises(ValidationError):
+        ConductorConfig.model_validate(deep_merge(valid_config(), change))
+
+
+def test_task_classes_form_exact_partition() -> None:
+    from conductor.schemas import ConductorConfig
+
+    duplicate = valid_config()
+    duplicate["tiers"][1]["task_classes"].append("architecture")
+    with pytest.raises(ValidationError, match="task class ownership"):
+        ConductorConfig.model_validate(duplicate)
+
+    missing = valid_config()
+    missing["tiers"][0]["task_classes"].remove("architecture")
+    with pytest.raises(ValidationError, match="task class ownership"):
+        ConductorConfig.model_validate(missing)
+
+
+@pytest.mark.parametrize(
+    "mutate, message",
+    [
+        (
+            lambda config: config["tiers"][1].update(name="frontier"),
+            "unique tier names",
+        ),
+        (lambda config: config["tiers"][1].update(model="gpt-5.5"), "unique models"),
+        (
+            lambda config: config["tiers"][1].update(relative_cost_weight=101),
+            "strictly decreasing",
+        ),
+    ],
+)
+def test_tier_integrity_constraints(mutate, message: str) -> None:
+    from conductor.schemas import ConductorConfig
+
+    payload = valid_config()
+    mutate(payload)
+    with pytest.raises(ValidationError, match=message):
+        ConductorConfig.model_validate(payload)
