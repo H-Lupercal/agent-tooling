@@ -266,6 +266,7 @@ def read_plan(path: Path) -> Plan:
 # The v2 planner intentionally lives in a separate module so importing legacy
 # plan files cannot trigger repository scans or provider inventory commands.
 from toolbelt.planner import (  # noqa: E402
+    build_explicit_plan_v2,
     build_plan_v2,
     calculate_plan_id,
     validate_plan_binding,
@@ -274,6 +275,7 @@ from toolbelt.planner import (  # noqa: E402
 
 __all__ = [
     "build_plan",
+    "build_explicit_plan_v2",
     "build_plan_v2",
     "calculate_plan_id",
     "plan_from_json",

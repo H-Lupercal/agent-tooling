@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 
 from toolbelt.catalog import CatalogV2
 from toolbelt.errors import StalePlanError, ValidationError
+from toolbelt.paths import repository_identity
 from toolbelt.policy import recommend
 from toolbelt.schemas import (
     ActionOperation,
@@ -19,6 +20,7 @@ from toolbelt.schemas import (
     PlanV2,
     RepositoryBinding,
 )
+from toolbelt.state import atomic_write_text
 
 
 _MAX_BOUND_FILES = 25_000
@@ -57,8 +59,6 @@ def build_plan_v2(
     created_at = _aware_utc(now)
     if ttl <= timedelta(0) or ttl > timedelta(days=7):
         raise ValidationError("plan TTL must be positive and no longer than seven days")
-    catalog_digest = _catalog_digest(catalog)
-    capability_digest = _capability_digest(capabilities)
     ordered_evidence = tuple(
         sorted(
             evidence,
@@ -95,6 +95,31 @@ def build_plan_v2(
                 required_env=tool.required_env,
             )
         )
+    return build_explicit_plan_v2(
+        repository_root,
+        catalog,
+        capabilities,
+        tuple(actions),
+        now=created_at,
+        ttl=ttl,
+    )
+
+
+def build_explicit_plan_v2(
+    root: str | Path,
+    catalog: CatalogV2,
+    capabilities: CapabilitySnapshot,
+    actions: tuple[ActionV2, ...] | list[ActionV2],
+    *,
+    now: datetime | None = None,
+    ttl: timedelta = timedelta(hours=1),
+) -> PlanV2:
+    repository_root = _validated_root(root)
+    created_at = _aware_utc(now)
+    if ttl <= timedelta(0) or ttl > timedelta(days=7):
+        raise ValidationError("plan TTL must be positive and no longer than seven days")
+    catalog_digest = _catalog_digest(catalog)
+    capability_digest = _capability_digest(capabilities)
     binding = _repository_binding(repository_root)
     draft = PlanV2(
         plan_id="0" * 64,
@@ -113,6 +138,34 @@ def calculate_plan_id(plan: PlanV2) -> str:
     payload = plan.model_dump(mode="json")
     payload.pop("plan_id", None)
     return sha256(_canonical_json(payload)).hexdigest()
+
+
+def write_plan_v2(plan: PlanV2, path: str | Path) -> Path:
+    target = Path(path)
+    payload = json.dumps(
+        plan.model_dump(mode="json"),
+        sort_keys=True,
+        indent=2,
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    atomic_write_text(target, payload + "\n")
+    return target
+
+
+def read_plan_v2(path: str | Path) -> PlanV2:
+    target = Path(path)
+    try:
+        if target.stat().st_size > 10 * 1024 * 1024:
+            raise ValidationError("plan exceeds ten MiB")
+        raw = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValidationError("plan root must be an object")
+        return PlanV2.model_validate(raw)
+    except FileNotFoundError as exc:
+        raise ValidationError(f"plan not found: {target}") from exc
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValidationError(f"invalid plan: {exc}") from exc
 
 
 def validate_plan_binding(
@@ -181,16 +234,10 @@ def _capability_digest(capabilities: CapabilitySnapshot) -> str:
 
 
 def _repository_binding(root: Path) -> RepositoryBinding:
-    metadata = root.stat()
-    identity_material = {
-        "device": int(getattr(metadata, "st_dev", 0)),
-        "inode": int(getattr(metadata, "st_ino", 0)),
-        "path": os.path.normcase(str(root)),
-    }
     git_head, dirty_digest = _git_binding(root)
     return RepositoryBinding(
         root=".",
-        identity=sha256(_canonical_json(identity_material)).hexdigest(),
+        identity=repository_identity(root),
         content_digest=_repository_content_digest(root),
         git_head=git_head,
         dirty_digest=dirty_digest,
@@ -316,4 +363,11 @@ def _canonical_json(value: object) -> bytes:
     ).encode("utf-8")
 
 
-__all__ = ["build_plan_v2", "calculate_plan_id", "validate_plan_binding"]
+__all__ = [
+    "build_explicit_plan_v2",
+    "build_plan_v2",
+    "calculate_plan_id",
+    "read_plan_v2",
+    "validate_plan_binding",
+    "write_plan_v2",
+]

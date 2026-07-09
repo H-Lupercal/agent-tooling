@@ -16,6 +16,7 @@ from toolbelt.errors import ApplyError, DriftError, ValidationError, Verificatio
 from toolbelt.paths import repository_identity, resolve_owned_path
 from toolbelt.planner import validate_plan_binding
 from toolbelt.schemas import (
+    ActionOperation,
     ActionStepV2,
     ActionV2,
     CapabilitySnapshot,
@@ -475,6 +476,9 @@ class Executor:
         tools = {tool.tool_id: tool for tool in (() if existing is None else existing.tools)}
         catalog_by_id = {tool.id: tool for tool in catalog}
         for action in plan.actions:
+            if action.operation is ActionOperation.REMOVE:
+                tools.pop(action.tool_id, None)
+                continue
             tool = catalog_by_id[action.tool_id]
             tools[action.tool_id] = DeclaredToolV2(
                 tool_id=tool.id,
