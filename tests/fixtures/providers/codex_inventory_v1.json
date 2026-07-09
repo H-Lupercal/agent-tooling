@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "provider": "codex",
+  "provider_version": "0.42.0",
+  "native": ["filesystem", "git"],
+  "tools": [
+    {"id": "mcp-playwright", "managed": true},
+    {"id": "ruff", "managed": false}
+  ]
+}

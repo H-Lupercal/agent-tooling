@@ -47,6 +47,7 @@ packages = ["src/toolbelt"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/toolbelt/data/catalog.toml" = "toolbelt/data/catalog.toml"
+"src/toolbelt/data/catalog-v1.toml" = "toolbelt/data/catalog-v1.toml"
 
 [tool.pyright]
 include = ["src/toolbelt"]
@@ -56,4 +57,5 @@ pythonVersion = "3.11"
 testpaths = ["tests"]
 
 [tool.ruff]
+exclude = ["tests/fixtures"]
 target-version = "py311"

@@ -1,0 +1,314 @@
+# toolbelt catalog. Read-only data. One [[tool]] per entry.
+schema_version = 1
+
+[[tool]]
+id = "mcp-filesystem"
+kind = "mcp_server"
+name = "Filesystem MCP"
+summary = "Read/write access to the project tree for the assistant."
+provenance = "npm:@modelcontextprotocol/server-filesystem"
+homepage = "https://github.com/modelcontextprotocol/servers"
+approved = true
+foundational = true
+permissions = ["filesystem-read", "filesystem-write"]
+install_scope = "project"
+secrets = []
+artifacts = []
+mcp_name = "filesystem"
+verify_argv = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "--help"]
+catalog_version = "1"
+  [[tool.match]]
+  any_files = ["*"]
+  weight = 2
+  [[tool.apply]]
+  apply_via = "claude_mcp"
+  harness = "claude_code"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+  [[tool.apply]]
+  apply_via = "codex_mcp"
+  harness = "codex"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+
+[[tool]]
+id = "mcp-git"
+kind = "mcp_server"
+name = "Git MCP"
+summary = "Git history, blame, and diff access for the assistant."
+provenance = "uvx:mcp-server-git"
+homepage = "https://github.com/modelcontextprotocol/servers"
+approved = true
+foundational = true
+permissions = ["filesystem-read", "process-spawn"]
+install_scope = "project"
+secrets = []
+artifacts = []
+mcp_name = "git"
+verify_argv = ["uvx", "mcp-server-git", "--help"]
+catalog_version = "1"
+  [[tool.match]]
+  any_files = [".git"]
+  weight = 2
+  [[tool.apply]]
+  apply_via = "claude_mcp"
+  harness = "claude_code"
+  mcp_command = "uvx"
+  mcp_args = ["mcp-server-git", "--repository", "."]
+  [[tool.apply]]
+  apply_via = "codex_mcp"
+  harness = "codex"
+  mcp_command = "uvx"
+  mcp_args = ["mcp-server-git", "--repository", "."]
+
+[[tool]]
+id = "mcp-playwright"
+kind = "mcp_server"
+name = "Playwright MCP"
+summary = "Browser automation for end-to-end / QA workflows."
+provenance = "npm:@playwright/mcp@latest"
+homepage = "https://github.com/microsoft/playwright-mcp"
+approved = true
+foundational = false
+permissions = ["browser-control", "process-spawn", "network"]
+install_scope = "project"
+secrets = []
+artifacts = []
+mcp_name = "playwright"
+verify_argv = ["npx", "-y", "@playwright/mcp@latest", "--help"]
+catalog_version = "1"
+  [[tool.match]]
+  any_files = ["playwright.config.*"]
+  weight = 3
+  [[tool.match]]
+  manifest_file = "package.json"
+  manifest_deps = ["@playwright/test", "playwright"]
+  weight = 3
+  [[tool.match]]
+  brief_keywords = ["end to end", "browser test", "e2e"]
+  weight = 1
+  [[tool.apply]]
+  apply_via = "claude_mcp"
+  harness = "claude_code"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@playwright/mcp@latest"]
+  [[tool.apply]]
+  apply_via = "codex_mcp"
+  harness = "codex"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@playwright/mcp@latest"]
+
+[[tool]]
+id = "mcp-postgres"
+kind = "connector"
+name = "Postgres MCP"
+summary = "Query and inspect a Postgres database the project uses."
+provenance = "npm:@modelcontextprotocol/server-postgres"
+homepage = "https://github.com/modelcontextprotocol/servers"
+approved = true
+foundational = false
+permissions = ["network", "credentials-read"]
+install_scope = "project"
+secrets = ["DATABASE_URL"]
+artifacts = []
+mcp_name = "postgres"
+verify_argv = []
+catalog_version = "1"
+# NOTE: v1 policy forbids secrets in args/config, so this entry passes no
+# connection string; the server must read DATABASE_URL from its process
+# environment (inherited from the harness). If this server version requires an
+# argv connection string, `toolbelt verify`/first use will surface it and the
+# user edits the catalog entry — do NOT add the secret to mcp_args.
+  [[tool.match]]
+  infra = ["postgres"]
+  weight = 3
+  [[tool.match]]
+  manifest_file = "package.json"
+  manifest_deps = ["pg", "postgres"]
+  weight = 2
+  [[tool.match]]
+  manifest_file = "pyproject.toml"
+  manifest_deps = ["psycopg", "psycopg2", "asyncpg"]
+  weight = 2
+  [[tool.match]]
+  brief_keywords = ["postgres", "postgresql"]
+  weight = 1
+  [[tool.apply]]
+  apply_via = "claude_mcp"
+  harness = "claude_code"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@modelcontextprotocol/server-postgres"]
+  [[tool.apply]]
+  apply_via = "codex_mcp"
+  harness = "codex"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@modelcontextprotocol/server-postgres"]
+
+[[tool]]
+id = "plugin-superpowers"
+kind = "plugin"
+name = "Superpowers (Claude Code plugin)"
+summary = "Implementation-discipline skills: TDD, worktrees, plans, review."
+provenance = "claude-plugin:superpowers@claude-plugins-official"
+homepage = "https://github.com/anthropics/claude-plugins-official"
+approved = true
+foundational = true
+permissions = ["none"]
+install_scope = "user"
+secrets = []
+artifacts = []
+mcp_name = ""
+verify_argv = []
+catalog_version = "1"
+  [[tool.match]]
+  any_files = ["*"]
+  weight = 2
+  [[tool.apply]]
+  apply_via = "claude_plugin"
+  harness = "claude_code"
+  plugin_ref = "superpowers@claude-plugins-official"
+
+[[tool]]
+id = "skill-toolbelt-conventions"
+kind = "skill"
+name = "Toolbelt conventions skill"
+summary = "Repo-committed skill telling assistants how this repo's toolchain is managed."
+provenance = "toolbelt:scaffold"
+homepage = ""
+approved = true
+foundational = true
+permissions = ["none"]
+install_scope = "repo-committed"
+secrets = []
+artifacts = []
+mcp_name = ""
+verify_argv = []
+catalog_version = "1"
+  [[tool.match]]
+  any_files = ["*"]
+  weight = 2
+  [[tool.apply]]
+  apply_via = "scaffold"
+  harness = "claude_code"
+  scaffold_path = ".claude/skills/toolbelt-conventions/SKILL.md"
+  scaffold_body = """
+---
+name: toolbelt-conventions
+description: Use when working in this repo - explains the managed AI toolchain and where its manifest lives
+---
+
+# Toolbelt conventions
+
+This repo's AI toolchain is managed by `toolbelt`. The manifest at
+`.toolbelt/manifest.json` records every managed MCP server, plugin, skill,
+LSP, and dev tool: why it was installed, what secrets it needs, and how to
+remove it.
+
+- Check the manifest before adding or removing MCP servers or plugins by
+  hand; prefer `toolbelt plan` + `toolbelt apply`.
+- Never commit `.toolbelt/secrets.env`, `.toolbelt/state/`, or
+  `.toolbelt/plan.json` (the managed `.gitignore` block covers them).
+- If a managed tool misbehaves, run `toolbelt verify --tool <id>`.
+- If the stack changed, run `toolbelt reconcile` to realign the toolchain.
+"""
+  [[tool.apply]]
+  apply_via = "managed_block"
+  harness = "codex"
+  block_path = "AGENTS.md"
+  block_body = """
+## Toolbelt-managed toolchain
+
+This repo's AI toolchain is managed by `toolbelt`. The manifest at
+`.toolbelt/manifest.json` records every managed MCP server, plugin, skill, LSP,
+and dev tool: why it was installed, what secrets it needs, and how to remove it.
+
+- Prefer `toolbelt plan` + `toolbelt apply` over adding MCP servers by hand;
+  check the manifest first.
+- Never commit `.toolbelt/secrets.env`, `.toolbelt/state/`, or
+  `.toolbelt/plan.json` (the managed `.gitignore` block covers them).
+- If a managed tool misbehaves, run `toolbelt verify --tool <id>`.
+- If the stack changed, run `toolbelt reconcile` to realign the toolchain.
+"""
+
+[[tool]]
+id = "lsp-pyright"
+kind = "lsp"
+name = "Pyright language server"
+summary = "Python type-aware navigation and diagnostics."
+provenance = "npm:pyright"
+homepage = "https://github.com/microsoft/pyright"
+approved = true
+foundational = false
+permissions = ["process-spawn"]
+install_scope = "user"
+secrets = []
+artifacts = []
+mcp_name = ""
+verify_argv = ["pyright", "--version"]
+catalog_version = "1"
+  [[tool.match]]
+  langs = ["python"]
+  weight = 2
+  [[tool.apply]]
+  apply_via = "command"
+  harness = ""
+  command_argv = ["npm", "install", "-g", "pyright"]
+  rollback_argv = ["npm", "uninstall", "-g", "pyright"]
+
+[[tool]]
+id = "tool-ruff"
+kind = "dev_tool"
+name = "Ruff"
+summary = "Fast Python linter/formatter used in CI and pre-commit."
+provenance = "uv:ruff"
+homepage = "https://github.com/astral-sh/ruff"
+approved = true
+foundational = false
+permissions = ["shell-exec"]
+install_scope = "user"
+secrets = []
+artifacts = [".ruff_cache/"]
+mcp_name = ""
+verify_argv = ["ruff", "--version"]
+catalog_version = "1"
+  [[tool.match]]
+  langs = ["python"]
+  weight = 2
+  [[tool.apply]]
+  apply_via = "command"
+  harness = ""
+  command_argv = ["uv", "tool", "install", "ruff"]
+  rollback_argv = ["uv", "tool", "uninstall", "ruff"]
+
+[[tool]]
+id = "mcp-terraform"
+kind = "mcp_server"
+name = "Terraform MCP"
+summary = "Plan/inspect Terraform configurations."
+provenance = "npm:@hashicorp/terraform-mcp-server"
+homepage = "https://github.com/hashicorp/terraform-mcp-server"
+approved = true
+foundational = false
+permissions = ["filesystem-read", "process-spawn"]
+install_scope = "project"
+secrets = []
+artifacts = []
+mcp_name = "terraform"
+verify_argv = []
+catalog_version = "1"
+  [[tool.match]]
+  infra = ["terraform"]
+  weight = 3
+  [[tool.match]]
+  brief_keywords = ["infrastructure as code", "terraform"]
+  weight = 1
+  [[tool.apply]]
+  apply_via = "claude_mcp"
+  harness = "claude_code"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@hashicorp/terraform-mcp-server"]
+  [[tool.apply]]
+  apply_via = "codex_mcp"
+  harness = "codex"
+  mcp_command = "npx"
+  mcp_args = ["-y", "@hashicorp/terraform-mcp-server"]
