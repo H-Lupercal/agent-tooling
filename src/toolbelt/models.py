@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from toolbelt.schemas import (
+    ActionOperation,
+    InstallScope,
+    Permission,
+    TransactionState,
+    VerificationState,
+)
+
 
 TOOL_KIND = {"mcp_server", "connector", "plugin", "skill", "lsp", "dev_tool"}
 PERMISSION = {
@@ -37,7 +45,26 @@ APPLY_VIA = {
     "managed_block_remove",
 }
 MANIFEST_STATE = {"planned", "installed", "verify_failed", "removed", "unknown"}
-SKIP_DIRS = {".git", ".toolbelt", "node_modules", "dist", "build", ".venv", "__pycache__"}
+SKIP_DIRS = {
+    ".git",
+    ".toolbelt",
+    "node_modules",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+}
+
+# Public v2 contracts live in ``schemas``. These imports keep the legacy model
+# module useful during the staged v2 replacement without adding compatibility
+# aliases for the v1 wire format.
+V2_ENUMS = (
+    ActionOperation,
+    InstallScope,
+    Permission,
+    TransactionState,
+    VerificationState,
+)
 
 
 @dataclass(frozen=True)
