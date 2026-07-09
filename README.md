@@ -6,8 +6,8 @@ delegated work down to cheaper enabled models, and uses each runtime's **native
 hooks** to block subagent spawns that violate the task envelope, tier ladder,
 depth limit, concurrency caps, or delegated-spawn budget.
 
-It is a **stdlib-only Python project** — no third-party dependencies. It does not
-modify the Codex or Claude Code binary and it does not run a wrapper daemon.
+It is a Python package with Pydantic and PlatformDirs as its only runtime
+dependencies. It does not modify the Codex or Claude Code binary and it does not run a wrapper daemon.
 Enforcement happens entirely through each provider's native hook system and is
 intentionally a **guardrail, not a hard billing or security boundary**: hooks
 fail open on internal errors, and already-running subagents are never killed.
@@ -21,9 +21,8 @@ fail open on internal errors, and already-running subagents are never killed.
   Windows.
 - **Codex CLI** and/or **Claude Code**, each with native hook support.
 
-You can run everything straight from a checkout
-(`PYTHONPATH="$PWD" python3 -m conductor.<command>`). Optionally, an editable
-install adds a `conductor` command - see
+For checkout development, install the package and its test tools with
+`pip install -e '.[dev]'`. This adds the `conductor` command - see
 [The `conductor` command](#the-conductor-command).
 
 ## What It Installs
@@ -45,9 +44,9 @@ For Claude Code (`bash install.sh --provider claude`):
 - `~/.claude/conductor/` (config, hook wrappers, ledger state)
 - a managed delegation-policy block in `~/.claude/CLAUDE.md`
 
-The source project can be cloned anywhere. The installer renders the current
-checkout path into the generated hook wrappers and installed policy, so the
-provider home always points back at this checkout.
+The installed hook wrappers import the installed package, and the managed policy
+uses its console entry point. Runtime operation does not depend on a source
+checkout.
 
 ## How It Works
 
@@ -56,7 +55,7 @@ Codex reads the installed `~/AGENTS.md` policy; Claude Code reads the installed
 before delegating:
 
 ```bash
-PYTHONPATH=/path/to/codex-conductor python3 -m conductor.status --pretty
+conductor status --pretty
 ```
 
 That reports the enabled tiers, current spend, reserved budget, active subagents,
@@ -139,6 +138,7 @@ Run the offline test suite first:
 
 ```bash
 cd /path/to/codex-conductor
+pip install -e '.[dev]'
 python3 -m unittest discover -s tests -v
 ```
 
@@ -187,15 +187,15 @@ requires hook approval or managed-settings review.
 
 ## The `conductor` command
 
-An editable install from the checkout adds a single `conductor` entry point:
+An editable development install from the checkout adds a single `conductor` entry point:
 
 ```bash
-pip install -e .
+pip install -e '.[dev]'
 ```
 
-Use `-e` (editable): the project keeps operating from its checkout - the
-installer renders that checkout path into the hooks - so a non-editable install
-is not supported. The command groups every subcommand:
+Use `-e` so local source changes are reflected during development. Normal wheel
+installs are supported and contain all runtime assets. The command groups every
+subcommand:
 
 ```bash
 conductor status --provider codex --pretty
@@ -207,9 +207,7 @@ conductor gc --keep 20            # keep the newest 20 run ledgers, delete the r
 conductor gc --older-than-days 30 # delete run ledgers older than 30 days
 ```
 
-`conductor <cmd>` is exactly equivalent to
-`PYTHONPATH="$PWD" python3 -m conductor.<cmd>`; use whichever you prefer. Run
-`conductor gc` between sessions, not during an active run.
+Run `conductor gc` between sessions, not during an active run.
 
 ## Daily Use
 
@@ -220,27 +218,27 @@ Run these from the repository checkout. By default they read the **Codex** home
 Inspect the current run state:
 
 ```bash
-PYTHONPATH="$PWD" python3 -m conductor.status --pretty
+conductor status --pretty
 ```
 
 Render the latest cost report:
 
 ```bash
-PYTHONPATH="$PWD" python3 -m conductor.report --last
+conductor report --last
 ```
 
 Report a specific run, or emit JSON:
 
 ```bash
-PYTHONPATH="$PWD" python3 -m conductor.report --run <run-id>
-PYTHONPATH="$PWD" python3 -m conductor.report --last --json
+conductor report --run <run-id>
+conductor report --last --json
 ```
 
 To inspect a Claude Code install, add `--provider claude` to either command:
 
 ```bash
-PYTHONPATH="$PWD" python3 -m conductor.status --provider claude --pretty
-PYTHONPATH="$PWD" python3 -m conductor.report --provider claude --last
+conductor status --provider claude --pretty
+conductor report --provider claude --last
 ```
 
 The installed policy tells the primary agent to append the report at the end of
@@ -251,8 +249,8 @@ each delegated run.
 Verify an install end-to-end for either provider:
 
 ```bash
-PYTHONPATH="$PWD" python3 -m conductor.doctor --provider codex
-PYTHONPATH="$PWD" python3 -m conductor.doctor --provider claude
+conductor doctor --provider codex
+conductor doctor --provider claude
 ```
 
 `doctor` checks Python/platform support, config validity and pricing, hook

@@ -103,14 +103,46 @@ def isolated_home(path: Path) -> dict[str, str]:
     return env
 
 
+@pytest.mark.parametrize(
+    ("provider_args", "asset_marker"),
+    [
+        ((), "gpt-5.5"),
+        (("--provider", "claude"), "claude-opus-4-8"),
+    ],
+)
 def test_installed_wheel_contains_operational_assets(
     built_wheel: Path,
     clean_venv: CleanVenv,
     tmp_path: Path,
+    provider_args: tuple[str, ...],
+    asset_marker: str,
 ) -> None:
     clean_venv.pip_install(built_wheel)
-    result = clean_venv.run("install", "--dry-run", env=isolated_home(tmp_path))
+    result = clean_venv.run(
+        "install",
+        "--dry-run",
+        *provider_args,
+        env=isolated_home(tmp_path),
+    )
 
     assert result.returncode == 0, result.stderr
     assert "FileNotFoundError" not in result.stderr
     assert "conductor.toml" in result.stdout
+    assert asset_marker in result.stdout
+
+
+def test_checkout_launch_paths_use_the_installed_console_entrypoint() -> None:
+    launchers = {
+        "install.sh": "conductor install",
+        "uninstall.sh": "conductor uninstall",
+        "install.ps1": "conductor install",
+        "uninstall.ps1": "conductor uninstall",
+    }
+    for relative_path, command in launchers.items():
+        text = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+        assert command in text
+        assert "-m conductor.install" not in text
+
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "PYTHONPATH=" not in readme
+    assert "pip install -e '.[dev]'" in readme
