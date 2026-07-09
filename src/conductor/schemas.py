@@ -328,12 +328,12 @@ class TaskEnvelopeV2(StrictModel):
     task_name: Identifier
     task_class: BoundedString
     risk_triggers: Annotated[tuple[BoundedString, ...], Field(max_length=32)]
-    owned_paths: Annotated[tuple[BoundedString, ...], Field(max_length=64)]
+    owned_paths: Annotated[tuple[BoundedString, ...], Field(min_length=1, max_length=64)]
     acceptance_checks: Annotated[
         tuple[
             Annotated[StrictStr, StringConstraints(min_length=1, max_length=1024)], ...
         ],
-        Field(max_length=64),
+        Field(min_length=1, max_length=64),
     ]
     new_task: StrictBool
     operation_intent: OperationName | None = None
