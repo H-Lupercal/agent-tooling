@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import re
 import tomllib
+from importlib.resources import files
+from importlib.resources.abc import Traversable
 from pathlib import Path
 
 from toolbelt.models import APPLY_VIA, INSTALL_SCOPE, PERMISSION, TOOL_KIND, CatalogStep, MatchGroup, Tool
@@ -63,11 +65,11 @@ STEP_KEYS = {
 }
 
 
-def default_catalog_path() -> Path:
+def default_catalog_path() -> Traversable:
     override = os.environ.get("TOOLBELT_CATALOG")
     if override:
         return Path(override)
-    return Path(__file__).resolve().parents[2] / "catalog" / "catalog.toml"
+    return files("toolbelt").joinpath("data", "catalog.toml")
 
 
 def _tuple(value) -> tuple[str, ...]:
