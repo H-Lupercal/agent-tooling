@@ -228,3 +228,11 @@ def scan(root: Path) -> list[Evidence]:
 def evidence_sha256(evidence: list[Evidence]) -> str:
     lines = sorted(f"{e.type}|{e.key}|{e.detail}" for e in evidence)
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def scan_v2(root: str | Path, **kwargs):
+    """Bridge to the pure v2 scanner during the staged package replacement."""
+
+    from toolbelt.scanner import scan_repository
+
+    return scan_repository(root, **kwargs)
