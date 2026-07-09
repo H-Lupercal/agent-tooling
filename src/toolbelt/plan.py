@@ -261,3 +261,24 @@ def read_plan(path: Path) -> Plan:
     import json
 
     return plan_from_json(json.loads(path.read_text(encoding="utf-8")))
+
+
+# The v2 planner intentionally lives in a separate module so importing legacy
+# plan files cannot trigger repository scans or provider inventory commands.
+from toolbelt.planner import (  # noqa: E402
+    build_plan_v2,
+    calculate_plan_id,
+    validate_plan_binding,
+)
+
+
+__all__ = [
+    "build_plan",
+    "build_plan_v2",
+    "calculate_plan_id",
+    "plan_from_json",
+    "plan_to_json",
+    "read_plan",
+    "validate_plan_binding",
+    "write_plan",
+]
