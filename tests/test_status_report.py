@@ -1,8 +1,9 @@
 import tempfile
 import unittest
+from importlib.resources import files
 from pathlib import Path
 
-from tests.helpers import DEFAULT_CONFIG, PROJECT_ROOT, restore_env, set_env, write_config, write_models_cache
+from tests.helpers import DEFAULT_CONFIG, restore_env, set_env, write_config, write_models_cache
 
 
 class StatusReportTests(unittest.TestCase):
@@ -129,7 +130,12 @@ class StatusReportTests(unittest.TestCase):
             root = Path(tmp)
             config_path = root / ".claude" / "conductor" / "conductor.toml"
             config_path.parent.mkdir(parents=True)
-            config_path.write_text((PROJECT_ROOT / "config" / "conductor.claude.toml").read_text(encoding="utf-8"), encoding="utf-8")
+            config_path.write_text(
+                files("conductor.assets")
+                .joinpath("config", "conductor.claude.toml")
+                .read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
             old = set_env(
                 CODEX_CONDUCTOR_HOME=str(root / ".claude" / "conductor"),
                 CODEX_CONDUCTOR_CONFIG=str(config_path),

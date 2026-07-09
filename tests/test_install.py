@@ -5,21 +5,16 @@ from pathlib import Path
 
 
 class InstallTests(unittest.TestCase):
-    def test_policy_template_renders_checkout_path(self):
+    def test_policy_template_uses_installed_package(self):
         from conductor.install import _render_policy
 
         project_root = Path("/tmp/public checkout/codex-conductor")
         policy = _render_policy(project_root)
 
-        self.assertIn(
-            "PYTHONPATH='/tmp/public checkout/codex-conductor' python3 -m conductor.status --pretty",
-            policy,
-        )
-        self.assertIn(
-            "PYTHONPATH='/tmp/public checkout/codex-conductor' python3 -m conductor.report --last",
-            policy,
-        )
-        self.assertEqual(policy.count(str(project_root)), 2)
+        self.assertIn("python3 -m conductor.status --pretty", policy)
+        self.assertIn("python3 -m conductor.report --last", policy)
+        self.assertNotIn("PYTHONPATH=", policy)
+        self.assertNotIn(str(project_root), policy)
         self.assertNotIn("{{PROJECT_ROOT}}", policy)
 
     def test_install_idempotent_uninstall_and_conflict(self):

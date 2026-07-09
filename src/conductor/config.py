@@ -4,6 +4,7 @@ import json
 import os
 import tomllib
 from dataclasses import dataclass, replace
+from importlib.resources import files
 from pathlib import Path
 
 
@@ -119,7 +120,7 @@ def default_config_path() -> Path:
     installed = conductor_home() / "conductor.toml"
     if installed.exists():
         return installed
-    return Path(__file__).resolve().parents[1] / "config" / "conductor.toml"
+    return Path(str(files("conductor.assets").joinpath("config", "conductor.toml")))
 
 
 def models_cache_path() -> Path:

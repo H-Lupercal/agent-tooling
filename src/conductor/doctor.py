@@ -3,10 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from importlib.resources import files
 from pathlib import Path
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_checks(provider: str, *, home: Path | None = None, policy_path: Path | None = None) -> dict:
@@ -19,7 +17,14 @@ def run_checks(provider: str, *, home: Path | None = None, policy_path: Path | N
     conductor_home = home / "conductor"
     hooks_dir = conductor_home / "hooks"
     installed_config = conductor_home / "conductor.toml"
-    bundled = PROJECT_ROOT / "config" / ("conductor.claude.toml" if provider == "claude" else "conductor.toml")
+    bundled = Path(
+        str(
+            files("conductor.assets").joinpath(
+                "config",
+                "conductor.claude.toml" if provider == "claude" else "conductor.toml",
+            )
+        )
+    )
     config_path = installed_config if installed_config.exists() else bundled
     models_cache = home / "models_cache.json"
 

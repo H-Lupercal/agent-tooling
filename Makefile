@@ -1,7 +1,21 @@
-.PHONY: test install uninstall probe e2e
+.PHONY: build check e2e format-check install lint probe test typecheck uninstall
 
 test:
-	python3 -m unittest discover -s tests -v
+	python3 -m pytest
+
+format-check:
+	python3 -m ruff format --check .
+
+lint:
+	python3 -m ruff check .
+
+typecheck:
+	pyright
+
+check: format-check lint typecheck test
+
+build:
+	python3 -m build
 
 install:
 	python3 -m conductor.install

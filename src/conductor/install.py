@@ -6,10 +6,10 @@ import json
 import os
 import shlex
 import sys
+from importlib.resources import files
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_START = "# >>> codex-conductor managed >>>"
 CONFIG_END = "# <<< codex-conductor managed <<<"
 POLICY_START = "<!-- >>> codex-conductor policy >>> -->"
@@ -73,7 +73,7 @@ def _install_codex(codex_home: Path | None, agents_path: Path | None, dry_run: b
         if not dry_run:
             path.mkdir(parents=True, exist_ok=True)
     if not config_dst.exists() or dry_run:
-        _write_or_diff(config_dst, (PROJECT_ROOT / "config" / "conductor.toml").read_text(encoding="utf-8"), dry_run)
+        _write_or_diff(config_dst, _asset_text("config", "conductor.toml"), dry_run)
         written.append(config_dst)
     for module in ("pre_tool_use", "lifecycle", "session_start"):
         dst = hooks_dir / f"{module}.py"
@@ -95,7 +95,7 @@ def _install_codex(codex_home: Path | None, agents_path: Path | None, dry_run: b
     config_block = "\n".join((CONFIG_START, "[agents]", "max_threads = 8", "max_depth = 3", "job_max_runtime_seconds = 1800", CONFIG_END, ""))
     _upsert_block(codex_home / "config.toml", CONFIG_START, CONFIG_END, config_block, dry_run)
     written.append(codex_home / "config.toml")
-    policy = _render_policy(PROJECT_ROOT, "codex")
+    policy = _render_policy(provider="codex")
     _upsert_block(agents_path, POLICY_START, POLICY_END, policy, dry_run)
     written.append(agents_path)
     return written
@@ -196,7 +196,7 @@ def _install_claude(claude_home: Path | None, claude_md_path: Path | None, dry_r
         if not dry_run:
             path.mkdir(parents=True, exist_ok=True)
     if not config_dst.exists() or dry_run:
-        _write_or_diff(config_dst, (PROJECT_ROOT / "config" / "conductor.claude.toml").read_text(encoding="utf-8"), dry_run)
+        _write_or_diff(config_dst, _asset_text("config", "conductor.claude.toml"), dry_run)
         written.append(config_dst)
     for module in ("pre_tool_use", "lifecycle", "session_start"):
         dst = hooks_dir / f"{module}.py"
@@ -205,7 +205,7 @@ def _install_claude(claude_home: Path | None, claude_md_path: Path | None, dry_r
     settings_path = claude_home / "settings.json"
     _merge_claude_settings(settings_path, hooks_dir, dry_run)
     written.append(settings_path)
-    policy = _render_policy(PROJECT_ROOT, "claude")
+    policy = _render_policy(provider="claude")
     _upsert_block(claude_md_path, POLICY_START, POLICY_END, policy, dry_run)
     written.append(claude_md_path)
     return written
@@ -328,17 +328,21 @@ def _wrapper(
         "#!/usr/bin/env python3\n"
         "from __future__ import annotations\n"
         "import os\n"
-        "import sys\n"
-        f"sys.path.insert(0, {str(PROJECT_ROOT)!r})\n"
         f"{env_lines}"
         f"from conductor.hooks.{module} import main\n"
         f"raise SystemExit({call})\n"
     )
 
 
-def _render_policy(project_root: Path = PROJECT_ROOT, provider: str = "codex") -> str:
+def _asset_text(*parts: str) -> str:
+    return files("conductor.assets").joinpath(*parts).read_text(encoding="utf-8")
+
+
+def _render_policy(project_root: Path | None = None, provider: str = "codex") -> str:
     name = "orchestration-policy.md" if provider == "codex" else f"orchestration-policy.{provider}.md"
-    template = (PROJECT_ROOT / "policy" / name).read_text(encoding="utf-8")
+    template = _asset_text("policy", name)
+    if project_root is None:
+        return template
     return template.replace("{{PROJECT_ROOT}}", shlex.quote(str(project_root)))
 
 

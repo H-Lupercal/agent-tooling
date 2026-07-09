@@ -2,7 +2,7 @@
 ## Cost-aware delegation (codex-conductor, Claude Code)
 
 Before spawning a subagent with the `Task` tool, run
-`PYTHONPATH={{PROJECT_ROOT}} python3 -m conductor.status --provider claude --pretty`.
+`python3 -m conductor.status --provider claude --pretty`.
 Choose the cheapest enabled tier that owns the task class. Keep decomposition,
 integration, final review, and high-risk work on the frontier tier (yourself).
 
@@ -32,6 +32,6 @@ delegated. If the budget hook blocks a spawn, finish the remaining work
 yourself and summarize what was not delegated.
 
 At the end of every run, execute
-`PYTHONPATH={{PROJECT_ROOT}} python3 -m conductor.report --provider claude --last`
+`python3 -m conductor.report --provider claude --last`
 and include the table in the final response.
 <!-- <<< codex-conductor policy <<< -->

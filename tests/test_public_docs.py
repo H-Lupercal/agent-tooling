@@ -5,8 +5,8 @@ import unittest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_DOCS = (
     PROJECT_ROOT / "README.md",
-    PROJECT_ROOT / "policy/orchestration-policy.md",
-    PROJECT_ROOT / "policy/orchestration-policy.claude.md",
+    PROJECT_ROOT / "src/conductor/assets/policy/orchestration-policy.md",
+    PROJECT_ROOT / "src/conductor/assets/policy/orchestration-policy.claude.md",
     PROJECT_ROOT / "docs/probe-report.md",
 )
 
