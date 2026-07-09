@@ -49,6 +49,10 @@ class StateError(ConductorError):
     exit_code = ExitCode.STATE
 
 
+class StoreBusyError(StateError):
+    pass
+
+
 class InstallationConflictError(ConductorError):
     exit_code = ExitCode.INSTALLATION_CONFLICT
 

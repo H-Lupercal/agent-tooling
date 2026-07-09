@@ -1,47 +1,44 @@
 from __future__ import annotations
 
-import json
-import time
 from collections import defaultdict
 from pathlib import Path
 
 from conductor.config import conductor_home
-from conductor.filelock import lock_exclusive, unlock
+from conductor.store import Store
+
+
+_STORES: dict[Path, Store] = {}
+
+
+def store_path() -> Path:
+    return conductor_home() / "state" / "conductor.db"
+
+
+def _store() -> Store:
+    path = store_path()
+    store = _STORES.get(path)
+    if store is None:
+        store = Store(path)
+        _STORES[path] = store
+    return store
 
 
 def run_state_dir(run_id: str) -> Path:
+    from conductor.store import validate_identifier
+
+    validate_identifier(run_id, "run_id")
     return conductor_home() / "state" / run_id
 
 
 def append_event(run_id: str, event: dict) -> None:
-    state = run_state_dir(run_id)
-    state.mkdir(parents=True, exist_ok=True)
-    lock_path = state / ".ledger.lock"
-    record = {"v": 1, "ts": time.time(), **event}
-    with lock_path.open("a", encoding="utf-8") as lock:
-        lock_exclusive(lock)
-        try:
-            with (state / "ledger.jsonl").open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(record, sort_keys=True) + "\n")
-        finally:
-            unlock(lock)
+    run_state_dir(run_id).mkdir(parents=True, exist_ok=True)
+    _store().append_legacy_event(run_id, event)
 
 
 def read_events(run_id: str) -> list[dict]:
-    path = run_state_dir(run_id) / "ledger.jsonl"
-    events: list[dict] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return events
-    for line in lines:
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            events.append(value)
-    return events
+    if not store_path().exists():
+        return []
+    return _store().read_legacy_events(run_id)
 
 
 def active_spawns(events: list[dict]) -> dict[str, list[dict]]:
@@ -59,7 +56,11 @@ def active_spawns(events: list[dict]) -> dict[str, list[dict]]:
 
 
 def spent_usd(events: list[dict]) -> float:
-    return sum(float(event.get("usd") or 0.0) for event in events if event.get("event") == "cost_recorded")
+    return sum(
+        float(event.get("usd") or 0.0)
+        for event in events
+        if event.get("event") == "cost_recorded"
+    )
 
 
 def same_tier_root_spawns(events: list[dict]) -> int:
@@ -73,19 +74,24 @@ def same_tier_root_spawns(events: list[dict]) -> int:
 
 
 def latest_run_id() -> str | None:
+    path = store_path()
+    if path.exists():
+        latest = _store().latest_run_id()
+        if latest is not None:
+            return latest
     state = conductor_home() / "state"
     if not state.exists():
         return None
-    dirs = [path for path in state.iterdir() if path.is_dir()]
-    if not dirs:
+    directories = [candidate for candidate in state.iterdir() if candidate.is_dir()]
+    if not directories:
         return None
-    return max(dirs, key=lambda path: path.stat().st_mtime).name
+    return max(directories, key=lambda candidate: candidate.stat().st_mtime).name
 
 
 def reserved_usd(events: list[dict], tiers_by_name: dict[str, object]) -> float:
     total = 0.0
     for tier, open_events in active_spawns(events).items():
         tier_obj = tiers_by_name.get(tier)
-        est = float(getattr(tier_obj, "est_task_usd", 0.0))
-        total += est * len(open_events)
+        estimate = float(getattr(tier_obj, "est_task_usd", 0.0))
+        total += estimate * len(open_events)
     return total

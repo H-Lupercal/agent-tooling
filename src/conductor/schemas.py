@@ -418,6 +418,8 @@ class Reservation(StrictModel):
     estimated_usd: FiniteNonNegativeFloat
     state: ReservationState
     correlation_id: Identifier | None
+    recoverable: StrictBool = False
+    recovery_reason: BoundedMessage | None = None
     created_at: datetime
     updated_at: datetime
     expires_at: datetime
@@ -462,6 +464,8 @@ class LifecycleEvent(StrictModel):
     occurred_at: datetime
     status: BoundedString | None = None
     usage: RawUsage | None = None
+    cost_usd: FiniteNonNegativeFloat | None = None
+    estimated: StrictBool | None = None
 
     @field_validator("occurred_at")
     @classmethod

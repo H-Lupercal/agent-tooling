@@ -61,3 +61,6 @@ include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: real multi-process contention and stress tests",
+]
