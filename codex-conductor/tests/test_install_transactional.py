@@ -11,6 +11,7 @@ import pytest
 from conductor.errors import InstallationConflictError
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX ownership semantics")
 def test_path_guard_allows_only_trusted_posix_system_symlinks() -> None:
     from conductor.path_guard import is_unsafe_path_redirect
 
@@ -45,6 +46,23 @@ def test_path_guard_allows_only_trusted_posix_system_symlinks() -> None:
     assert is_unsafe_path_redirect(
         FakePath(symlink=False, parent=safe_parent),
         SimpleNamespace(st_uid=0, st_file_attributes=0x400),
+    )
+
+
+def test_path_guard_rejects_windows_symlinks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import conductor.path_guard as path_guard
+
+    class FakePath:
+        parent = SimpleNamespace()
+
+        def is_symlink(self) -> bool:
+            return True
+
+    monkeypatch.setattr(path_guard, "os", SimpleNamespace(name="nt"))
+    assert path_guard.is_unsafe_path_redirect(
+        FakePath(), SimpleNamespace(st_uid=0, st_file_attributes=0)
     )
 
 
