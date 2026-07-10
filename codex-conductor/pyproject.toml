@@ -1,0 +1,110 @@
+[build-system]
+requires = ["hatchling>=1.25,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "codex-conductor"
+dynamic = ["version"]
+description = "Cost-aware orchestration guardrail for Codex and Claude Code subagents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "H-Lupercal" }]
+keywords = ["codex", "claude-code", "llm", "orchestration", "cost", "hooks"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+urls = { Homepage = "https://github.com/H-Lupercal/codex-conductor", Documentation = "https://github.com/H-Lupercal/codex-conductor#readme", Repository = "https://github.com/H-Lupercal/codex-conductor", Issues = "https://github.com/H-Lupercal/codex-conductor/issues", Changelog = "https://github.com/H-Lupercal/codex-conductor/blob/main/CHANGELOG.md" }
+dependencies = [
+    "pydantic>=2.8,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2,<2",
+    "cyclonedx-bom>=5,<8",
+    "hatchling>=1.25,<2",
+    "hypothesis>=6.112,<7",
+    "pip-audit>=2.7,<3",
+    "pyright>=1.1.380,<2",
+    "pytest>=9.0.3,<10",
+    "pytest-cov>=5,<7",
+    "ruff>=0.6,<1",
+    "twine>=5.1,<7",
+]
+
+[project.scripts]
+conductor = "conductor.cli:main"
+
+[tool.hatch.version]
+path = "src/conductor/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/conductor"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/Makefile",
+    "/README.md",
+    "/SECURITY.md",
+    "/CONTRIBUTING.md",
+    "/CODE_OF_CONDUCT.md",
+    "/docs",
+    "/install.sh",
+    "/install.ps1",
+    "/uninstall.sh",
+    "/uninstall.ps1",
+    "/pyproject.toml",
+    "/uv.lock",
+]
+exclude = ["/docs/superpowers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: real multi-process contention and stress tests",
+    "distribution: builds and installs release artifacts in isolated environments",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["conductor"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.pyright]
+include = ["src/conductor"]
+exclude = ["**/__pycache__"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"

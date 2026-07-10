@@ -1,0 +1,6 @@
+{
+  "task_name": "tests_ledger",
+  "message": "Run the ledger tests",
+  "fork_turns": "all",
+  "model": "gpt-5.4-mini"
+}
