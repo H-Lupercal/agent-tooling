@@ -175,6 +175,30 @@ def test_ci_targets_both_project_directories_and_unique_artifacts() -> None:
     assert text.count("scripts/finalize_sbom.py") == 1
 
 
+def test_clean_environment_installs_do_not_depend_on_uv_cache_state() -> None:
+    workflows = ROOT / ".github" / "workflows"
+    for name in ("ci.yml", "release-toolbelt.yml", "release-codex-conductor.yml"):
+        text = (workflows / name).read_text(encoding="utf-8")
+        assert "uv pip install --offline --link-mode=copy" not in text
+        assert "export --locked --no-dev --no-emit-project" in text
+        assert "-r build/runtime-requirements.txt" in text
+
+    conductor = ROOT / "codex-conductor"
+    distribution_test = (conductor / "tests" / "test_distribution.py").read_text(
+        encoding="utf-8"
+    )
+    e2e = (conductor / "tests" / "e2e_smoke.sh").read_text(encoding="utf-8")
+    makefiles = [
+        (ROOT / project / "Makefile").read_text(encoding="utf-8")
+        for project in PROJECTS
+    ]
+    for text in (distribution_test, e2e, *makefiles):
+        assert "pip install --offline" not in text
+    for makefile in makefiles:
+        assert "export --locked --no-dev --no-emit-project" in makefile
+        assert "-r build/runtime-requirements.txt" in makefile
+
+
 def test_local_coverage_release_floor_is_ninety_percent() -> None:
     for project in PROJECTS:
         with (ROOT / project / "pyproject.toml").open("rb") as handle:

@@ -4,10 +4,66 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from conductor.errors import InstallationConflictError
+
+
+def test_path_guard_allows_only_trusted_posix_system_symlinks() -> None:
+    from conductor.path_guard import is_unsafe_path_redirect
+
+    class FakeParent:
+        def __init__(self, *, uid: int, mode: int) -> None:
+            self._metadata = SimpleNamespace(st_uid=uid, st_mode=mode)
+
+        def stat(self):
+            return self._metadata
+
+    class FakePath:
+        def __init__(self, *, symlink: bool, parent: FakeParent) -> None:
+            self._symlink = symlink
+            self.parent = parent
+
+        def is_symlink(self) -> bool:
+            return self._symlink
+
+    safe_parent = FakeParent(uid=0, mode=0o755)
+    root_owned = SimpleNamespace(st_uid=0, st_file_attributes=0)
+    user_owned = SimpleNamespace(st_uid=1000, st_file_attributes=0)
+
+    assert not is_unsafe_path_redirect(
+        FakePath(symlink=True, parent=safe_parent), root_owned
+    )
+    assert is_unsafe_path_redirect(
+        FakePath(symlink=True, parent=safe_parent), user_owned
+    )
+    assert is_unsafe_path_redirect(
+        FakePath(symlink=True, parent=FakeParent(uid=0, mode=0o777)), root_owned
+    )
+    assert is_unsafe_path_redirect(
+        FakePath(symlink=False, parent=safe_parent),
+        SimpleNamespace(st_uid=0, st_file_attributes=0x400),
+    )
+
+
+def test_transaction_stages_text_without_platform_newline_translation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import conductor.install as installer
+
+    real_named_temporary_file = installer.tempfile.NamedTemporaryFile
+
+    def stable_newline_file(*args, **kwargs):
+        assert kwargs.get("newline") == ""
+        return real_named_temporary_file(*args, **kwargs)
+
+    monkeypatch.setattr(installer.tempfile, "NamedTemporaryFile", stable_newline_file)
+    installer.install(
+        codex_home=tmp_path / ".codex",
+        agents_path=tmp_path / "AGENTS.md",
+    )
 
 
 def test_install_writes_hash_manifest_and_post_tool_correlation_hook(

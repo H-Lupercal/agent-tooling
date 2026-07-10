@@ -210,9 +210,16 @@ jobs:
         working-directory: ${{ matrix.project }}
       - run: uv build --offline --clear
         working-directory: ${{ matrix.project }}
+      - run: >-
+          uv export --locked --no-dev --no-emit-project
+          --format requirements.txt
+          --output-file build/runtime-requirements.txt --quiet
+        working-directory: ${{ matrix.project }}
       - run: uv venv --clear --python 3.13 build/sbom-venv
         working-directory: ${{ matrix.project }}
-      - run: uv pip install --offline --link-mode=copy --python build/sbom-venv dist/*.whl
+      - run: >-
+          uv pip install --link-mode=copy --python build/sbom-venv
+          -r build/runtime-requirements.txt dist/*.whl
         working-directory: ${{ matrix.project }}
       - run: >-
           uv run cyclonedx-py environment build/sbom-venv

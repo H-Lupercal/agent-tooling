@@ -29,8 +29,9 @@ security:
 	$(PYTHON) -m pip_audit
 
 sbom: build
+	$(UV) export --locked --no-dev --no-emit-project --format requirements.txt --output-file build/runtime-requirements.txt --quiet
 	$(UV) venv --clear --python $(PYTHON) build/sbom-venv
-	$(UV) pip install --offline --link-mode=copy --python build/sbom-venv dist/*.whl
+	$(UV) pip install --link-mode=copy --python build/sbom-venv -r build/runtime-requirements.txt dist/*.whl
 	$(PYTHON) -m cyclonedx_py environment build/sbom-venv --pyproject pyproject.toml --mc-type library --output-reproducible --of JSON --output-file dist/toolbelt-ai.cdx.json
 	$(UV) run --offline --no-project --python build/sbom-venv python scripts/finalize_sbom.py --input dist/toolbelt-ai.cdx.json --distribution toolbelt-ai
 

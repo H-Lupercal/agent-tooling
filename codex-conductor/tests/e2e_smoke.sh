@@ -16,7 +16,7 @@ if [[ "${OS:-}" == "Windows_NT" ]]; then
 fi
 
 if command -v "$UV" >/dev/null 2>&1; then
-  "$UV" pip install --offline --link-mode=copy --python "$VENV_PY" "$ROOT"
+  "$UV" pip install --link-mode=copy --python "$VENV_PY" "$ROOT"
 else
   "$VENV_PY" -m pip install -q "$ROOT"
 fi

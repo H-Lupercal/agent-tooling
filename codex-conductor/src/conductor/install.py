@@ -14,6 +14,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from conductor.errors import InstallationConflictError
+from conductor.path_guard import is_unsafe_path_redirect
 
 CONFIG_START = "# >>> codex-conductor managed >>>"
 CONFIG_END = "# <<< codex-conductor managed <<<"
@@ -76,6 +77,7 @@ class _FileTransaction:
                 with tempfile.NamedTemporaryFile(
                     mode="w",
                     encoding="utf-8",
+                    newline="",
                     dir=path.parent,
                     prefix=f".{path.name}.conductor-stage-",
                     delete=False,
@@ -695,9 +697,7 @@ def _assert_safe_path(path: Path) -> None:
                 f"cannot inspect install path {current}: {exc}"
             ) from exc
         else:
-            if current.is_symlink() or bool(
-                getattr(metadata, "st_file_attributes", 0) & 0x400
-            ):
+            if is_unsafe_path_redirect(current, metadata):
                 raise InstallationConflictError(
                     f"install path is a symbolic link or reparse point: {current}"
                 )

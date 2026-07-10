@@ -44,7 +44,6 @@ class CleanVenv:
                     uv,
                     "pip",
                     "install",
-                    "--offline",
                     "--link-mode=copy",
                     "--python",
                     str(self.python),

@@ -33,7 +33,6 @@ class RolloutTests(unittest.TestCase):
                 (FIXTURES / "rollout_subagent.jsonl").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
-
             self.assertEqual(find_rollout("child-thread", root), target)
 
     def test_bounded_readers_reject_missing_malformed_and_mixed_model_data(self):
@@ -120,6 +119,8 @@ class RolloutTests(unittest.TestCase):
                 (FIXTURES / "rollout_subagent.jsonl").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
+            newest = target.stat().st_mtime + 10
+            os.utime(malformed, (newest, newest))
 
             self.assertEqual(find_rollout("child-thread", root), target)
 

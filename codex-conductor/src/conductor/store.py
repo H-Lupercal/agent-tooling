@@ -16,6 +16,7 @@ from typing import Any
 
 from conductor.errors import StateError, StoreBusyError
 from conductor.migrations import apply_migrations
+from conductor.path_guard import is_unsafe_path_redirect
 from conductor.schemas import (
     Decision,
     LifecycleEvent,
@@ -1148,9 +1149,7 @@ def _assert_safe_store_path(path: Path) -> None:
             continue
         except OSError as exc:
             raise StateError(f"cannot inspect conductor store path: {exc}") from exc
-        if candidate.is_symlink() or bool(
-            getattr(metadata, "st_file_attributes", 0) & 0x400
-        ):
+        if is_unsafe_path_redirect(candidate, metadata):
             raise StateError(
                 f"conductor store path is a symbolic link or reparse point: {candidate}"
             )

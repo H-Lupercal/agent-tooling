@@ -71,7 +71,7 @@ class ClaudeInstallTests(unittest.TestCase):
                 "--provider claude", hooks["PreToolUse"][-1]["hooks"][0]["command"]
             )
             self.assertIn("CODEX_CONDUCTOR_HOME", wrapper_text)
-            self.assertIn(str(claude_home / "conductor"), wrapper_text)
+            self.assertIn(repr(str(claude_home / "conductor")), wrapper_text)
             self.assertTrue(
                 (claude_home / "CLAUDE.md")
                 .read_text(encoding="utf-8")

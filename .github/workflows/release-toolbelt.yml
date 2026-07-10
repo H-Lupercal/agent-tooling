@@ -53,8 +53,9 @@ jobs:
       - name: Create release metadata
         shell: bash
         run: |
+          uv export --locked --no-dev --no-emit-project --format requirements.txt --output-file build/runtime-requirements.txt --quiet
           uv venv --clear --python 3.13 build/sbom-venv
-          uv pip install --offline --link-mode=copy --python build/sbom-venv dist/*.whl
+          uv pip install --link-mode=copy --python build/sbom-venv -r build/runtime-requirements.txt dist/*.whl
           uv run cyclonedx-py environment build/sbom-venv --pyproject pyproject.toml --mc-type library --output-reproducible --of JSON --output-file "dist/toolbelt-ai-${GITHUB_REF_NAME}.cdx.json"
           uv run --offline --no-project --python build/sbom-venv python scripts/finalize_sbom.py --input "dist/toolbelt-ai-${GITHUB_REF_NAME}.cdx.json" --distribution toolbelt-ai
           cd dist

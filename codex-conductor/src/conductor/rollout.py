@@ -181,6 +181,6 @@ def find_rollout(thread_id: str, sessions_root: Path) -> Path | None:
         try:
             if read_session_meta(candidate).thread_id == thread_id:
                 return candidate
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             continue
     return None
