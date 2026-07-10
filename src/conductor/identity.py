@@ -11,12 +11,11 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from conductor.capabilities import contract_digest, load_contract
+from conductor.capabilities import contract_digest, contract_mode, load_contract
 from conductor.config import Ladder, config_digest, load_config
 from conductor.errors import StateError
 from conductor.rollout import SessionMeta, find_rollout, read_session_meta
-from conductor.schemas import OperatingMode, RunContext
-
+from conductor.schemas import Provider, RunContext
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -99,7 +98,11 @@ def resolve_identity(
 def resolve_run_context(payload: dict) -> RunContext:
     if not isinstance(payload, dict):
         raise StateError("invalid run context: provider payload must be an object")
-    provider = payload.get("provider") or "codex"
+    raw_provider = payload.get("provider") or "codex"
+    try:
+        provider = Provider(raw_provider)
+    except (TypeError, ValueError) as exc:
+        raise StateError(f"invalid run context provider: {raw_provider!r}") from exc
     transcript = payload.get("transcript_path") or payload.get("agent_transcript_path")
     meta: SessionMeta | None = None
     if transcript:
@@ -122,16 +125,16 @@ def resolve_run_context(payload: dict) -> RunContext:
         contract = load_contract(str(contract_name))
     except Exception as exc:
         raise StateError(f"invalid run context provider contract: {exc}") from exc
-    if contract.provider.value != provider:
+    if contract.provider is not provider:
         raise StateError(
             "invalid run context provider contract: "
-            f"contract provider {contract.provider.value!r} does not match {provider!r}"
+            f"contract provider {contract.provider.value!r} does not match {provider.value!r}"
         )
     installed_digest = contract_digest(contract)
     digest = payload.get("contract_digest") or installed_digest
     if digest != installed_digest:
         raise StateError("invalid run context provider contract: contract digest drift")
-    mode = payload.get("mode") or _default_mode(contract)
+    mode = payload.get("mode") or contract_mode(contract)
     config_hash = payload.get("config_digest")
     if config_hash is None:
         try:
@@ -140,19 +143,21 @@ def resolve_run_context(payload: dict) -> RunContext:
             raise StateError(f"invalid run context configuration: {exc}") from exc
     now = datetime.now(UTC)
     try:
-        return RunContext(
-            provider=provider,
-            run_id=run_id,
-            thread_id=thread_id,
-            root_model=payload.get("root_model") or payload.get("model"),
-            model_source=payload.get("model_source") or "provider",
-            provider_contract=contract.contract_name,
-            contract_digest=digest,
-            mode=mode,
-            generation=payload.get("generation", 1),
-            started_at=payload.get("started_at", now),
-            heartbeat_at=payload.get("heartbeat_at", now),
-            config_digest=config_hash,
+        return RunContext.model_validate(
+            {
+                "provider": provider,
+                "run_id": run_id,
+                "thread_id": thread_id,
+                "root_model": payload.get("root_model") or payload.get("model"),
+                "model_source": payload.get("model_source") or "provider",
+                "provider_contract": contract.contract_name,
+                "contract_digest": digest,
+                "mode": mode,
+                "generation": payload.get("generation", 1),
+                "started_at": payload.get("started_at", now),
+                "heartbeat_at": payload.get("heartbeat_at", now),
+                "config_digest": config_hash,
+            }
         )
     except (ValidationError, TypeError, ValueError) as exc:
         raise StateError(f"invalid run context: {exc}") from exc
@@ -191,21 +196,6 @@ def read_run_context(path: Path) -> RunContext:
         return RunContext.model_validate(raw)
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as exc:
         raise StateError(f"cannot read run context {source}: {exc}") from exc
-
-
-def _default_mode(contract) -> OperatingMode:
-    correlations = contract.correlation_fields
-    if not contract.hook_events or not correlations.run_id or not correlations.child_id:
-        return OperatingMode.UNSUPPORTED
-    if not contract.can_block:
-        return OperatingMode.OBSERVE
-    if not correlations.lifecycle_id:
-        return OperatingMode.UNSUPPORTED
-    return (
-        OperatingMode.ROUTING
-        if contract.model_selector_path
-        else OperatingMode.ADMISSION
-    )
 
 
 def _identifier_or_none(value: object) -> str | None:

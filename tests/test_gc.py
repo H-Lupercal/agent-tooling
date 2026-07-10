@@ -1,59 +1,52 @@
-import contextlib
-import io
-import os
-import tempfile
-import time
-import unittest
+from __future__ import annotations
+
 from pathlib import Path
 
-from tests.helpers import restore_env, set_env
+from conductor.store import Store
 
 
-def _make_runs(root: Path, runs: list[tuple[str, float]]) -> Path:
-    state = root / "state"
-    state.mkdir(parents=True)
-    for name, age_days in runs:
-        run_dir = state / name
-        run_dir.mkdir()
-        (run_dir / "ledger.jsonl").write_text("{}\n", encoding="utf-8")
-        stamp = time.time() - age_days * 86400
-        os.utime(run_dir, (stamp, stamp))
-    return state
+def test_gc_plan_never_selects_an_actively_leased_run(tmp_path: Path) -> None:
+    from conductor.gc import plan_gc
+
+    now = [1_000_000.0]
+    store = Store(tmp_path / "gc.db", clock=lambda: now[0])
+    store.create_run(
+        "old-active",
+        provider="codex",
+        generation=1,
+        mode="admission",
+        lease_seconds=10_000,
+    )
+    store.create_run(
+        "old-expired",
+        provider="codex",
+        generation=1,
+        mode="admission",
+        lease_seconds=1,
+    )
+    now[0] += 2
+
+    removed, kept = plan_gc(store, keep=0, older_than_days=None, now=now[0])
+
+    assert removed == ["old-expired"]
+    assert kept == ["old-active"]
 
 
-class GcTests(unittest.TestCase):
-    def test_keep_newest_removes_the_rest(self):
-        from conductor.gc import prune
+def test_gc_is_plan_only_until_execute_is_explicit(tmp_path: Path) -> None:
+    from conductor.gc import main
+    from tests.helpers import restore_env, set_env
 
-        with tempfile.TemporaryDirectory() as tmp:
-            state = _make_runs(Path(tmp), [("old", 10), ("mid", 5), ("new", 1)])
-            removed, kept = prune(state, keep=2, older_than_days=None)
-            self.assertEqual(removed, ["old"])
-            self.assertEqual(set(kept), {"new", "mid"})
-
-    def test_older_than_days(self):
-        from conductor.gc import prune
-
-        with tempfile.TemporaryDirectory() as tmp:
-            state = _make_runs(Path(tmp), [("old", 10), ("new", 1)])
-            removed, kept = prune(state, keep=None, older_than_days=7)
-            self.assertEqual(removed, ["old"])
-            self.assertEqual(kept, ["new"])
-
-    def test_dry_run_via_main_keeps_dirs(self):
-        from conductor.gc import main
-
-        with tempfile.TemporaryDirectory() as tmp:
-            _make_runs(Path(tmp) / "home", [("old", 10), ("new", 1)])
-            old = set_env(CODEX_CONDUCTOR_HOME=str(Path(tmp) / "home"))
-            try:
-                with contextlib.redirect_stdout(io.StringIO()):
-                    rc = main(["--keep", "1", "--dry-run"])
-                self.assertEqual(rc, 0)
-                self.assertTrue((Path(tmp) / "home" / "state" / "old").exists())
-            finally:
-                restore_env(old)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    home = tmp_path / "home"
+    store = Store(home / "state" / "conductor.db", clock=lambda: 1_000.0)
+    store.create_run(
+        "expired", provider="codex", generation=1, mode="admission", lease_seconds=1
+    )
+    # A fresh Store uses wall time, so the synthetic lease is expired.
+    old = set_env(CODEX_CONDUCTOR_HOME=str(home))
+    try:
+        assert main(["--keep", "0"]) == 0
+        assert Store(home / "state" / "conductor.db").run_ids() == ["expired"]
+        assert main(["--keep", "0", "--execute"]) == 0
+        assert Store(home / "state" / "conductor.db").run_ids() == []
+    finally:
+        restore_env(old)

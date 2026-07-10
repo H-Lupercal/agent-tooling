@@ -13,7 +13,6 @@ from conductor.schemas import (
     ToolContract,
 )
 
-
 _CONTRACT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
@@ -25,6 +24,28 @@ class CapabilityResult:
     child_model_selectable: bool
     matched_operation: str | None
     reason: str
+
+
+def contract_mode(contract: CapabilityContract) -> OperatingMode:
+    """Return the strongest mode the declared contract can support in general."""
+
+    correlations = contract.correlation_fields
+    if (
+        not contract.hook_events
+        or not correlations.run_id
+        or not correlations.child_id
+        or not correlations.lifecycle_id
+    ):
+        return OperatingMode.UNSUPPORTED
+    if not contract.can_block:
+        return OperatingMode.OBSERVE
+    if contract.model_selector_path is None:
+        return OperatingMode.ADMISSION
+    if not any(
+        _schema_has_path(tool, contract.model_selector_path) for tool in contract.tools
+    ):
+        return OperatingMode.UNSUPPORTED
+    return OperatingMode.ROUTING
 
 
 def load_contract(name: str) -> CapabilityContract:

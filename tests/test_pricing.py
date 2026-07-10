@@ -1,6 +1,6 @@
+import re
 import tempfile
 import unittest
-import re
 from pathlib import Path
 
 from tests.helpers import DEFAULT_CONFIG, write_config
@@ -21,6 +21,7 @@ class PricingTests(unittest.TestCase):
     def test_pricing_verified_and_fallback_estimate(self):
         from conductor.config import load_ladder
         from conductor.pricing import TokenUsage, estimate_usd, pricing_verified
+        from conductor.schemas import ConductorConfig
 
         zero_price = re.sub(
             r"^(input|cache_read|cache_write|output)_usd_per_mtok = .+$",
@@ -35,6 +36,21 @@ class PricingTests(unittest.TestCase):
 
             self.assertFalse(pricing_verified(ladder))
             self.assertEqual(estimate_usd(usage, ladder.tiers[0], ladder), 5.0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ladder = load_ladder(write_config(Path(tmp) / "conductor.toml"))
+            raw = ladder.model_dump(mode="python")
+            raw["tiers"][1]["pricing"] = {
+                key: 0.0 for key in raw["tiers"][1]["pricing"]
+            }
+            partially_configured = ConductorConfig.model_validate(raw)
+
+            self.assertFalse(pricing_verified(partially_configured))
+
+            raw = ladder.model_dump(mode="python")
+            raw["tiers"][0]["pricing"]["cache_write_usd_per_mtok"] = 0.0
+            missing_dimension = ConductorConfig.model_validate(raw)
+            self.assertFalse(pricing_verified(missing_dimension))
 
 
 if __name__ == "__main__":

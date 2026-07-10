@@ -37,8 +37,8 @@ tool is feature-complete and this spec is packaging and polish only.
 - **`gc` is manual and conservative.** It never runs automatically, never deletes
   the `state/` root, only removes immediate run-id subdirectories, and defaults
   to keeping the newest 20 runs, so an active/recent run is preserved.
-- **Copyright holder** in `LICENSE`/`pyproject.toml` is `legoreddragon-ai`
-  <sumanth.coder@gmail.com>, year `2026`; these are editable placeholders.
+- **Copyright holder** in `LICENSE`/`pyproject.toml` is `H-Lupercal`, year
+  `2026`.
 - **`conductor/gc.py`** uses only absolute imports; under Python 3 this does not
   shadow the stdlib `gc` module for any other code.
 
@@ -83,7 +83,7 @@ description = "Cost-aware orchestration guardrail for Codex and Claude Code suba
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "legoreddragon-ai", email = "sumanth.coder@gmail.com" }]
+authors = [{ name = "H-Lupercal" }]
 keywords = ["codex", "claude-code", "llm", "orchestration", "cost", "hooks"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -277,7 +277,7 @@ if __name__ == "__main__":
 ```
 MIT License
 
-Copyright (c) 2026 legoreddragon-ai
+Copyright (c) 2026 H-Lupercal
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

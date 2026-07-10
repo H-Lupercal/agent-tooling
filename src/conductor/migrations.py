@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 MIGRATIONS: dict[int, tuple[str, ...]] = {
@@ -139,7 +138,22 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE INDEX IF NOT EXISTS lifecycle_correlation_idx ON lifecycle_events(run_id, correlation_id)",
         "CREATE INDEX IF NOT EXISTS leases_expiry_idx ON leases(expires_at)",
         "CREATE INDEX IF NOT EXISTS legacy_events_run_idx ON legacy_events(run_id, sequence)",
-    )
+    ),
+    2: (
+        """
+        CREATE TABLE IF NOT EXISTS correlation_aliases (
+            run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+            alias TEXT NOT NULL,
+            reservation_id TEXT NOT NULL REFERENCES reservations(reservation_id) ON DELETE CASCADE,
+            source_event_id TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (run_id, alias),
+            UNIQUE (run_id, source_event_id)
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS correlation_alias_reservation_idx ON correlation_aliases(reservation_id)",
+    ),
+    3: ("DROP TABLE IF EXISTS legacy_events",),
 }
 
 

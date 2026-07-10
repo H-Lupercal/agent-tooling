@@ -87,3 +87,67 @@ def test_explicit_operation_intent_must_match_canonical_operation() -> None:
     envelope = TaskEnvelopeV2.model_validate(payload)
 
     assert is_new_work("collaboration.followup_task", {}, envelope) is False
+
+
+def test_outer_hook_correlation_is_preserved_for_exact_lifecycle_matching() -> None:
+    from conductor.tool_adapter import normalize_governed_payload
+
+    envelope = envelope_payload()
+    payload = {
+        "provider": "codex",
+        "tool_call_id": "call-outer-1",
+        "tool_name": "spawn_agent",
+        "tool_input": {
+            "task_name": "bounded-task",
+            "model": "gpt-5.4",
+            "message": (
+                "<CONDUCTOR_TASK>"
+                + __import__("json").dumps(envelope, separators=(",", ":"))
+                + "</CONDUCTOR_TASK>"
+            ),
+        },
+    }
+
+    result = normalize_governed_payload(payload)
+
+    assert result.operation is not None
+    assert result.operation.correlation_id == "call-outer-1"
+
+
+def test_plain_feedback_never_requires_a_new_task_envelope() -> None:
+    from conductor.tool_adapter import normalize_governed_payload
+
+    result = normalize_governed_payload(
+        {
+            "provider": "codex",
+            "tool_name": "collaboration.send_message",
+            "tool_input": {"target": "agent-1", "message": "please clarify"},
+        }
+    )
+
+    assert result.operation is not None
+    assert result.operation.is_new_work is False
+    assert result.decision.allowed is True
+    assert result.decision.rule == "NOT_GOVERNED"
+
+
+def test_invalid_outer_correlation_never_bypasses_strict_operation_validation() -> None:
+    from conductor.tool_adapter import normalize_governed_payload
+
+    payload = {
+        "provider": "codex",
+        "tool_call_id": "../not-an-id",
+        "tool_name": "spawn_agent",
+        "tool_input": {
+            "message": (
+                "<CONDUCTOR_TASK>"
+                + __import__("json").dumps(envelope_payload(), separators=(",", ":"))
+                + "</CONDUCTOR_TASK>"
+            )
+        },
+    }
+
+    result = normalize_governed_payload(payload)
+
+    assert result.operation is not None
+    assert result.operation.correlation_id is None

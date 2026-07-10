@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from tests.test_schemas import envelope_payload
 

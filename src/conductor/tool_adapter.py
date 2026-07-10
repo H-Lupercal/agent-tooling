@@ -16,7 +16,6 @@ from conductor.schemas import (
     TaskEnvelopeV2,
 )
 
-
 START = "<CONDUCTOR_TASK>"
 END = "</CONDUCTOR_TASK>"
 MAX_ENVELOPE_BYTES = 16_384
@@ -187,12 +186,39 @@ def normalize_governed_payload(payload: object) -> GovernedPayloadResult:
         operation = normalize_operation(
             provider_name, tool_name, tool_input, parse.envelope
         )
+        outer_correlation = _first_string(
+            payload,
+            (
+                "correlation_id",
+                "tool_call_id",
+                "tool_use_id",
+                "event_id",
+                "task_id",
+            ),
+        )
+        candidate = operation.model_dump(mode="python")
+        candidate["correlation_id"] = outer_correlation
+        try:
+            operation = NormalizedOperation.model_validate(candidate)
+        except ValidationError:
+            # Provider correlation is a trust boundary. Never fall back to a
+            # user-controlled id embedded in the tool input.
+            candidate["correlation_id"] = None
+            operation = NormalizedOperation.model_validate(candidate)
 
     if operation_name == "other":
         return GovernedPayloadResult(
             parse,
             operation,
             _normalization_decision("NOT_GOVERNED", True, OperationName.OTHER),
+        )
+    if operation is not None and not operation.is_new_work:
+        return GovernedPayloadResult(
+            parse,
+            operation,
+            _normalization_decision(
+                "NOT_GOVERNED", True, OperationName(operation_name)
+            ),
         )
     if parse.kind == "missing":
         return GovernedPayloadResult(

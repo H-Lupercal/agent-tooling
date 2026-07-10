@@ -1,30 +1,54 @@
-.PHONY: build check e2e format-check install lint probe test typecheck uninstall
+.PHONY: audit build check clean dist-test e2e format format-check install lint probe release-check sbom test typecheck uninstall
+
+PYTHON ?= python3
 
 test:
-	python3 -m pytest
+	$(PYTHON) -m pytest -m "not distribution" --cov=conductor --cov-branch --cov-report=term-missing --cov-fail-under=85
+
+dist-test:
+	$(PYTHON) -m pytest -m distribution -q
 
 format-check:
-	python3 -m ruff format --check .
+	$(PYTHON) -m ruff format --check .
+
+format:
+	$(PYTHON) -m ruff format .
 
 lint:
-	python3 -m ruff check .
+	$(PYTHON) -m ruff check .
 
 typecheck:
-	pyright
+	$(PYTHON) -m pyright
 
 check: format-check lint typecheck test
 
 build:
-	python3 -m build
+	$(PYTHON) -m build --no-isolation
+
+release-check: check build
+	$(PYTHON) -m twine check dist/*.whl dist/*.tar.gz
+	$(PYTHON) -m pytest -m distribution -q
+	PYTHON=$(PYTHON) bash tests/e2e_smoke.sh
+	$(PYTHON) -m pip_audit
+	$(PYTHON) -m cyclonedx_py environment --pyproject pyproject.toml --mc-type library --output-reproducible --of JSON --output-file dist/codex-conductor.cdx.json
+
+audit:
+	$(PYTHON) -m pip_audit
+
+sbom:
+	$(PYTHON) -m cyclonedx_py environment --pyproject pyproject.toml --mc-type library --output-reproducible --of JSON --output-file dist/codex-conductor.cdx.json
+
+clean:
+	$(PYTHON) -c "import shutil; [shutil.rmtree(path, ignore_errors=True) for path in ('build', 'dist')]"
 
 install:
-	python3 -m conductor.install
+	$(PYTHON) -m conductor.install
 
 uninstall:
-	python3 -m conductor.install --uninstall
+	$(PYTHON) -m conductor.install --uninstall
 
 probe:
-	RUN_LIVE=1 python3 probe/probe.py
+	$(PYTHON) probe/probe.py
 
 e2e:
-	RUN_LIVE=1 bash tests/e2e_smoke.sh
+	PYTHON=$(PYTHON) bash tests/e2e_smoke.sh

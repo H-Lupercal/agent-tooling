@@ -9,6 +9,7 @@
   "hook_events": [
     "SessionStart",
     "PreToolUse",
+    "PostToolUse",
     "SubagentStart",
     "SubagentStop"
   ],
@@ -73,7 +74,7 @@
     "caller_id": ["caller_id"],
     "child_id": ["agent_id"],
     "task_id": ["task_name"],
-    "lifecycle_id": ["tool_call_id", "event_id"]
+    "lifecycle_id": ["tool_call_id", "event_id", "thread_id"]
   },
   "usage_fields": [
     "input_tokens",

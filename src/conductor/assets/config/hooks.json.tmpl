@@ -17,6 +17,14 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "spawn_agent|assign_agent_task",
+        "hooks": [
+          {"type": "command", "command": "python3 {conductor_home}/hooks/lifecycle.py", "timeout": 5, "statusMessage": "Linking conductor lifecycle"}
+        ]
+      }
+    ],
     "SubagentStart": [
       {"hooks": [{"type": "command", "command": "python3 {conductor_home}/hooks/lifecycle.py", "timeout": 5}]}
     ],

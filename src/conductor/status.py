@@ -3,65 +3,96 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 
-from conductor.config import enabled_tiers, load_ladder, models_cache_path, provider_home
-from conductor.ledger import active_spawns, latest_run_id, read_events, reserved_usd, spent_usd
+from conductor.config import (
+    enabled_tiers,
+    load_config,
+    models_cache_path,
+    provider_home,
+)
+from conductor.errors import ConductorError, ExitCode, StateError
+from conductor.ledger import store_path
 from conductor.pricing import pricing_verified
+from conductor.store import Store
 
 
-def build_status(run_id: str | None = None) -> dict:
+def build_status(
+    run_id: str | None = None,
+    *,
+    store: Store | None = None,
+) -> dict:
+    config = load_config()
+    database = store or _existing_store()
+    selected = run_id or database.latest_run_id()
+    if selected is None:
+        raise StateError("no conductor runs exist")
+    snapshot = database.run_snapshot(selected)
+    enabled = enabled_tiers(config, models_cache_path())
     warnings: list[str] = []
-    ladder = load_ladder()
-    run_id = run_id or latest_run_id() or "none"
-    events = [] if run_id == "none" else read_events(run_id)
-    enabled = enabled_tiers(ladder, models_cache_path())
-    active = {tier: len(items) for tier, items in active_spawns(events).items()}
-    tiers_by_name = {tier.name: tier for tier in ladder.tiers}
-    spent = spent_usd(events)
-    reserved = reserved_usd(events, tiers_by_name)
-    blocked = sum(1 for event in events if event.get("event") == "spawn_blocked")
-    if spent + reserved >= ladder.budget.run_usd_cap * ladder.budget.warn_at_fraction:
-        warnings.append("delegated-spawn budget warning threshold reached")
-    verified = pricing_verified(ladder)
-    if not verified:
-        warnings.append("PRICING UNVERIFIED - edit conductor.toml")
+    committed = snapshot["costs"]["total_usd"] + snapshot["reserved_usd"]
+    if committed >= config.budget.run_usd_cap * config.budget.warn_at_fraction:
+        warnings.append("budget warning threshold reached")
+    if not pricing_verified(config):
+        warnings.append("pricing is unverified; dollar costs may use task estimates")
+    if snapshot["lease"] is None or not snapshot["lease"]["active"]:
+        warnings.append("run lease is inactive")
+    if snapshot["recoverable"]:
+        warnings.append(
+            f"{snapshot['recoverable']} lifecycle record(s) require recovery"
+        )
+    active: dict[str, int] = {}
+    for row in snapshot["reservations"]:
+        if row["state"] in {"approved", "started"}:
+            active[row["tier"]] = active.get(row["tier"], 0) + row["count"]
     return {
-        "run_id": run_id,
-        "spent_usd": spent,
-        "reserved_usd": reserved,
-        "cap_usd": ladder.budget.run_usd_cap,
-        "remaining_usd": max(ladder.budget.run_usd_cap - spent - reserved, 0.0),
-        "enforce": ladder.budget.enforce,
+        "schema_version": 1,
+        **snapshot,
+        "cap_usd": config.budget.run_usd_cap,
+        "remaining_usd": max(config.budget.run_usd_cap - committed, 0.0),
+        "enforce": config.budget.enforce,
         "active": active,
         "enabled_tiers": [
             {
-                "name": ladder.tiers[index].name,
-                "model": ladder.tiers[index].model,
-                "reasoning_effort": ladder.tiers[index].reasoning_effort,
-                "max_concurrent": ladder.tiers[index].max_concurrent,
-                "task_classes": list(ladder.tiers[index].task_classes),
+                "name": config.tiers[index].name,
+                "model": config.tiers[index].model,
+                "reasoning_effort": config.tiers[index].reasoning_effort,
+                "max_concurrent": config.tiers[index].max_concurrent,
+                "task_classes": list(config.tiers[index].task_classes),
             }
             for index in enabled
         ],
-        "pricing_verified": verified,
-        "blocked_spawn_count": blocked,
+        "pricing_verified": pricing_verified(config),
         "warnings": warnings,
     }
 
 
+def _existing_store() -> Store:
+    path = store_path()
+    if not path.exists():
+        raise StateError(f"conductor store does not exist: {path}")
+    return Store(path)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--run")
+    selection.add_argument("--last", action="store_true")
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument("--provider", choices=["codex", "claude"], default="codex")
     args = parser.parse_args(argv)
     os.environ.setdefault("CODEX_CONDUCTOR_HOME", str(provider_home(args.provider)))
     try:
         status = build_status(args.run)
-    except Exception as exc:
-        status = {"warnings": [repr(exc)], "run_id": args.run or "none"}
+    except ConductorError as exc:
+        print(f"conductor status: {exc}", file=sys.stderr)
+        return int(exc.exit_code)
+    except (OSError, ValueError) as exc:
+        print(f"conductor status: {exc}", file=sys.stderr)
+        return int(ExitCode.INTERNAL)
     print(json.dumps(status, indent=2 if args.pretty else None, sort_keys=True))
-    return 0
+    return int(ExitCode.SUCCESS)
 
 
 if __name__ == "__main__":

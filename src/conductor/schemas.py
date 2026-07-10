@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal
 
@@ -17,7 +17,6 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
 
 TASK_CLASSES = (
     "architecture",
@@ -70,8 +69,12 @@ FinitePositiveFloat = Annotated[
     StrictFloat,
     Field(gt=0.0, allow_inf_nan=False),
 ]
-NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
+NonNegativeInt = Annotated[StrictInt, Field(ge=0, le=9_223_372_036_854_775_807)]
 PositiveInt = Annotated[StrictInt, Field(gt=0)]
+PriceRate = Annotated[
+    StrictFloat,
+    Field(ge=0.0, le=1_000_000.0, allow_inf_nan=False),
+]
 
 
 class StrictModel(BaseModel):
@@ -82,19 +85,19 @@ class StrictModel(BaseModel):
     )
 
 
-class Provider(str, Enum):
+class Provider(StrEnum):
     CODEX = "codex"
     CLAUDE = "claude"
 
 
-class OperatingMode(str, Enum):
+class OperatingMode(StrEnum):
     ROUTING = "routing"
     ADMISSION = "admission"
     OBSERVE = "observe"
     UNSUPPORTED = "unsupported"
 
 
-class OperationName(str, Enum):
+class OperationName(StrEnum):
     SPAWN = "spawn"
     ASSIGN = "assign"
     FOLLOWUP = "followup"
@@ -102,7 +105,7 @@ class OperationName(str, Enum):
     OTHER = "other"
 
 
-class ReservationState(str, Enum):
+class ReservationState(StrEnum):
     APPROVED = "approved"
     STARTED = "started"
     STOPPED = "stopped"
@@ -112,7 +115,7 @@ class ReservationState(str, Enum):
     FAILED = "failed"
 
 
-class LifecycleKind(str, Enum):
+class LifecycleKind(StrEnum):
     START = "start"
     STOP = "stop"
     COST = "cost"
@@ -121,10 +124,10 @@ class LifecycleKind(str, Enum):
 
 
 class Pricing(StrictModel):
-    input_usd_per_mtok: FiniteNonNegativeFloat
-    cache_read_usd_per_mtok: FiniteNonNegativeFloat
-    cache_write_usd_per_mtok: FiniteNonNegativeFloat
-    output_usd_per_mtok: FiniteNonNegativeFloat
+    input_usd_per_mtok: PriceRate
+    cache_read_usd_per_mtok: PriceRate
+    cache_write_usd_per_mtok: PriceRate
+    output_usd_per_mtok: PriceRate
 
 
 class BudgetConfig(StrictModel):
@@ -208,7 +211,7 @@ class ConductorConfig(StrictModel):
         if len(models) != len(set(models)):
             raise ValueError("tiers must have unique models")
 
-        for stronger, weaker in zip(self.tiers, self.tiers[1:]):
+        for stronger, weaker in zip(self.tiers, self.tiers[1:], strict=False):
             if weaker.relative_cost_weight >= stronger.relative_cost_weight:
                 raise ValueError(
                     "tier relative_cost_weight must be strictly decreasing"
@@ -328,7 +331,9 @@ class TaskEnvelopeV2(StrictModel):
     task_name: Identifier
     task_class: BoundedString
     risk_triggers: Annotated[tuple[BoundedString, ...], Field(max_length=32)]
-    owned_paths: Annotated[tuple[BoundedString, ...], Field(min_length=1, max_length=64)]
+    owned_paths: Annotated[
+        tuple[BoundedString, ...], Field(min_length=1, max_length=64)
+    ]
     acceptance_checks: Annotated[
         tuple[
             Annotated[StrictStr, StringConstraints(min_length=1, max_length=1024)], ...

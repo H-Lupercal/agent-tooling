@@ -9,7 +9,6 @@ from conductor.schemas import (
     TaskEnvelopeV2,
 )
 
-
 _ALIASES = {
     "spawn_agent": OperationName.SPAWN,
     "task": OperationName.SPAWN,
@@ -68,7 +67,13 @@ def normalize_operation(
 
 
 def _correlation_id(payload: dict[str, Any]) -> str | None:
-    for key in ("correlation_id", "tool_call_id", "event_id", "task_id"):
+    for key in (
+        "correlation_id",
+        "tool_call_id",
+        "tool_use_id",
+        "event_id",
+        "task_id",
+    ):
         value = payload.get(key)
         if isinstance(value, str) and value:
             return value

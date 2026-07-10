@@ -2,7 +2,7 @@
 ## Cost-aware delegation (codex-conductor, Claude Code)
 
 Before spawning a subagent with the `Task` tool, run
-`conductor status --provider claude --pretty`.
+`conductor status --provider claude --last --pretty`.
 Choose the cheapest enabled tier that owns the task class. Keep decomposition,
 integration, final review, and high-risk work on the frontier tier (yourself).
 
@@ -19,7 +19,7 @@ security-sensitive input parsing, secrets handling, production configuration.
 
 Every governed `Task` call must set the `model` field to the chosen tier's
 model and include this envelope in the `prompt`:
-`<CONDUCTOR_TASK>{"schema_version":1,"task_name":"tests_ledger","task_class":"tests","risk_triggers":[],"owned_paths":["tests/test_ledger.py"],"acceptance_checks":["python3 -m unittest tests.test_ledger -v"],"new_task":true}</CONDUCTOR_TASK>`
+`<CONDUCTOR_TASK>{"schema_version":1,"task_name":"tests_ledger","task_class":"tests","risk_triggers":[],"owned_paths":["tests/test_ledger.py"],"acceptance_checks":["python -m pytest tests/test_ledger.py -q"],"new_task":true}</CONDUCTOR_TASK>`
 
 Model field accepts the aliases `opus`, `sonnet`, `haiku` or full model ids.
 The task class determines the required tier: if the `model` you pass does not

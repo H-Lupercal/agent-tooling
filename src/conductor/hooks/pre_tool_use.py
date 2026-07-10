@@ -1,148 +1,343 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+import hashlib
+import json
+from collections.abc import Sequence
+from datetime import UTC, datetime
 
-from conductor.config import Ladder, enabled_tiers as load_enabled_tiers, load_ladder, models_cache_path
+from conductor.capabilities import contract_digest, load_contract, negotiate
+from conductor.config import (
+    ConductorConfig,
+    config_digest,
+    enabled_tiers,
+    load_config,
+    models_cache_path,
+)
+from conductor.errors import ConductorError, StateError
 from conductor.hooks.common import log_error, read_payload, write_json
 from conductor.identity import Caller
-from conductor.ledger import active_spawns, append_event, read_events, reserved_usd, same_tier_root_spawns, spent_usd
-from conductor.tool_adapter import ToolRequest, normalize_tool_request
+from conductor.ledger import store_path
+from conductor.operations import canonical_operation
+from conductor.policy import evaluate_policy
+from conductor.schemas import (
+    Decision,
+    NormalizedOperation,
+    OperatingMode,
+    OperationName,
+    RunContext,
+)
+from conductor.store import DecisionSpec, ReservationRequest, ReservationSnapshot, Store
+from conductor.tool_adapter import normalize_governed_payload
 
 
-@dataclass(frozen=True)
-class Decision:
-    decision: str
-    reason: str
-    rule: str = "OK"
+def decide(
+    payload: dict,
+    config: ConductorConfig,
+    store: Store,
+    run: RunContext,
+    caller: Caller,
+    enabled: Sequence[int],
+    *,
+    provider_name: str | None = None,
+) -> Decision:
+    """Normalize, evaluate, and atomically reserve one hook operation."""
 
+    provider = provider_name or run.provider.value
+    normalized_payload = {**payload, "provider": provider}
+    result = normalize_governed_payload(normalized_payload)
+    operation = result.operation
+    if operation is not None:
+        from conductor.providers import get_provider
 
-def decide(payload: dict, ladder: Ladder, events: list[dict], enabled: list[int], caller: Caller) -> Decision:
-    return _decide(normalize_tool_request(payload, {}), ladder, events, enabled, caller)
+        provider_request = get_provider(provider).normalize_request(payload)
+        if provider_request.requested_model is not None:
+            operation_data = operation.model_dump(mode="python")
+            operation_data["payload"] = {
+                **operation.payload,
+                "model": provider_request.requested_model,
+            }
+            operation = NormalizedOperation.model_validate(operation_data)
 
-
-def _decide(request: ToolRequest, ladder: Ladder, events: list[dict], enabled: list[int], caller: Caller) -> Decision:
-    if request.kind not in {"spawn", "new_task"}:
-        return Decision("approve", "not a governed agent task")
-    if caller.run_id is None:
-        return Decision("block", "cannot resolve root run id; cannot enforce conductor budget safely", "R1")
-    if request.envelope is None:
-        return Decision("block", "missing or invalid conductor_task envelope", "R2")
-    if caller.depth + 1 > ladder.policy.max_depth:
-        return Decision("block", f"depth limit {ladder.policy.max_depth} reached; do the task yourself", "R3")
-    if caller.tier_index is None:
-        _append(caller.run_id, {"event": "ungoverned_caller", "model": caller.model})
-        return Decision("approve", "caller model is outside conductor ladder", "R4")
-    caller_tier = ladder.tiers[caller.tier_index]
-    if not caller_tier.may_spawn:
-        return Decision("block", f"tier {caller_tier.name} may not spawn subagents; do the task yourself", "R5")
-    requested_model = request.requested_model or caller.model
-    child_index = ladder.tier_index_for_model(requested_model)
-    if child_index is None or child_index not in enabled:
-        names = ", ".join(f"{ladder.tiers[index].name}={ladder.tiers[index].model}" for index in enabled)
-        return Decision("block", f"model {requested_model} not in the enabled ladder; enabled: {names}", "R6")
-    child_tier = ladder.tiers[child_index]
-    envelope = request.envelope
-    if (envelope.task_class == "high_risk" or envelope.risk_triggers) and child_tier.name != "frontier":
-        return Decision("block", "high_risk tasks require frontier tier", "R7")
-    allowed_index = _allowed_tier_index_for_class(ladder, enabled, envelope.task_class)
-    if allowed_index is None:
-        return Decision("block", f"task class {envelope.task_class} has no enabled tier", "R6_CLASS")
-    if child_index != allowed_index:
-        allowed = ladder.tiers[allowed_index]
-        return Decision("block", f"task class {envelope.task_class} must run on tier {allowed.name} ({allowed.model})", "R6_CLASS")
-    if child_index < caller.tier_index:
-        return Decision("block", "never spawn a stronger model", "R8")
-    if ladder.policy.require_strictly_cheaper and child_index == caller.tier_index:
-        allowed = caller.depth == 0 and same_tier_root_spawns(events) < ladder.policy.same_tier_spawns_from_root_max
-        if not allowed:
-            cheaper = ", ".join(tier.model for index, tier in enumerate(ladder.tiers) if index > caller.tier_index and index in enabled)
-            return Decision("block", f"child must be strictly cheaper; pick one of: {cheaper}", "R8")
-    active = active_spawns(events)
-    if len(active.get(child_tier.name, [])) >= child_tier.max_concurrent:
-        return Decision("block", f"tier {child_tier.name} at max_concurrent={child_tier.max_concurrent}; wait_agent on an existing agent first", "R9")
-    tiers_by_name = {tier.name: tier for tier in ladder.tiers}
-    spent = spent_usd(events)
-    reserved = reserved_usd(events, tiers_by_name)
-    if spent + reserved + child_tier.est_task_usd > ladder.budget.run_usd_cap:
-        reason = (
-            f"spawn budget cap ${ladder.budget.run_usd_cap:.2f} would be exceeded "
-            f"(spent ${spent:.2f}, reserved ${reserved:.2f}); finish remaining work yourself and summarize"
+    if operation is None or not operation.is_new_work:
+        return _ephemeral(
+            allowed=True,
+            rule="NOT_GOVERNED",
+            message="operation is not new governed work",
+            mode=run.mode,
+            operation=operation,
         )
-        if ladder.budget.enforce:
-            return Decision("block", reason, "R10")
-        _append(caller.run_id, {"event": "budget_warning", "reason": reason})
-        return Decision("approve", reason, "R10_WARN")
-    _append(
-        caller.run_id,
-        {
-            "event": "spawn_approved",
-            "task_name": envelope.task_name,
-            "task_class": envelope.task_class,
-            "risk_triggers": list(envelope.risk_triggers),
-            "owned_paths": list(envelope.owned_paths),
-            "model": child_tier.model,
-            "tier": child_tier.name,
-            "caller_tier": caller_tier.name,
-            "caller_thread_id": caller.thread_id,
-            "caller_depth": caller.depth,
-        },
+    if caller.run_id != run.run_id or caller.thread_id is None:
+        return _identity_decision(
+            config.policy.unknown_identity,
+            "caller identity does not match the active run",
+            run,
+            operation,
+        )
+    if caller.tier_index is None:
+        return _identity_decision(
+            config.policy.unknown_model,
+            "caller model is outside the configured ladder",
+            run,
+            operation,
+        )
+    if run.config_digest != config_digest(config):
+        return _persist(
+            store,
+            operation,
+            run,
+            caller,
+            config,
+            enabled,
+            forced=DecisionSpec(
+                False,
+                "CONFIG_DRIFT",
+                "active run configuration differs from SessionStart",
+            ),
+        )
+    if result.decision.rule != "NORMALIZED":
+        return _persist(
+            store,
+            operation,
+            run,
+            caller,
+            config,
+            enabled,
+            forced=DecisionSpec(
+                result.decision.allowed,
+                result.decision.rule,
+                result.decision.message,
+            ),
+        )
+    if (
+        run.mode in {OperatingMode.ADMISSION, OperatingMode.ROUTING}
+        and operation.correlation_id is None
+    ):
+        return _persist(
+            store,
+            operation,
+            run,
+            caller,
+            config,
+            enabled,
+            forced=DecisionSpec(
+                False,
+                "MISSING_CORRELATION",
+                "enforced work requires one bounded provider correlation id",
+            ),
+        )
+    return _persist(store, operation, run, caller, config, enabled)
+
+
+def _persist(
+    store: Store,
+    operation: NormalizedOperation,
+    run: RunContext,
+    caller: Caller,
+    config: ConductorConfig,
+    enabled: Sequence[int],
+    *,
+    forced: DecisionSpec | None = None,
+) -> Decision:
+    empty = ReservationSnapshot(active_by_tier={}, reserved_usd=0.0, spent_usd=0.0)
+    preview = evaluate_policy(
+        operation=operation,
+        run=run,
+        config=config,
+        enabled_tiers=enabled,
+        snapshot=empty,
+        caller_model=caller.model,
+        caller_depth=caller.depth,
     )
-    return Decision("approve", "spawn approved")
+    caller_tier = config.tier_for_model(caller.model)
+    tier = preview.tier or caller_tier or config.tiers[0]
+    envelope = operation.envelope
+    task_id = (
+        envelope.task_name if envelope is not None else _derived_id("task", operation)
+    )
+    idempotency_key = operation.correlation_id or _derived_id("request", operation)
+    request = ReservationRequest(
+        run_id=run.run_id,
+        task_id=task_id,
+        correlation_id=operation.correlation_id,
+        idempotency_key=idempotency_key,
+        operation=operation.operation.value,
+        tier=tier.name,
+        model=tier.model,
+        estimated_usd=preview.estimate_usd,
+        ttl_seconds=config.policy.reservation_ttl_seconds,
+        generation=run.generation,
+        mode=run.mode.value,
+    )
+
+    def evaluator(snapshot: ReservationSnapshot) -> DecisionSpec:
+        if forced is not None:
+            return forced
+        return evaluate_policy(
+            operation=operation,
+            run=run,
+            config=config,
+            enabled_tiers=enabled,
+            snapshot=snapshot,
+            caller_model=caller.model,
+            caller_depth=caller.depth,
+        ).spec
+
+    return store.decide_and_reserve(request, evaluator)
 
 
-def _allowed_tier_index_for_class(ladder: Ladder, enabled: list[int], task_class: str) -> int | None:
-    owner_index = None
-    for index, tier in enumerate(ladder.tiers):
-        if task_class in tier.task_classes:
-            owner_index = index
-            break
-    if owner_index is None:
-        return None
-    candidates = [index for index in enabled if index <= owner_index]
-    if not candidates:
-        return None
-    return max(candidates)
+def _identity_decision(
+    posture: str,
+    reason: str,
+    run: RunContext,
+    operation: NormalizedOperation,
+) -> Decision:
+    if posture == "observe":
+        return _ephemeral(
+            allowed=True,
+            rule="IDENTITY_OBSERVE_ONLY",
+            message=reason,
+            mode=OperatingMode.OBSERVE,
+            operation=operation,
+        )
+    rule = "IDENTITY_UNKNOWN" if posture == "deny" else "IDENTITY_DEGRADED"
+    return _ephemeral(
+        allowed=False,
+        rule=rule,
+        message=reason,
+        mode=run.mode,
+        operation=operation,
+    )
 
 
-def _append(run_id: str | None, event: dict) -> None:
-    if run_id:
-        try:
-            append_event(run_id, event)
-        except OSError as exc:
-            log_error("pre_tool_use", exc)
+def _ephemeral(
+    *,
+    allowed: bool,
+    rule: str,
+    message: str,
+    mode: OperatingMode,
+    operation: NormalizedOperation | None,
+) -> Decision:
+    return Decision(
+        decision_id=_derived_id("decision", operation),
+        allowed=allowed,
+        rule=rule,
+        message=message,
+        mode=mode,
+        operation=(
+            operation.operation if operation is not None else OperationName.OTHER
+        ),
+        selected_model=None,
+        reservation_estimate_usd=0.0,
+        savings_eligible=False,
+        reservation_id=None,
+        created_at=datetime.now(UTC),
+    )
+
+
+def _derived_id(prefix: str, operation: NormalizedOperation | None) -> str:
+    payload = (
+        operation.model_dump(mode="json") if operation is not None else {"none": True}
+    )
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"{prefix}-{hashlib.sha256(encoded).hexdigest()[:48]}"
+
+
+def _effective_run_context(
+    run: RunContext,
+    payload: dict,
+) -> RunContext:
+    contract = load_contract(run.provider_contract)
+    if contract_digest(contract) != run.contract_digest:
+        raise StateError("active run provider contract digest drift")
+    tool_input = payload.get("tool_input") or payload.get("input") or {}
+    capability = negotiate(contract, tool_input)
+    return run.model_copy(update={"mode": capability.mode})
+
+
+def _is_governed(payload: dict) -> bool:
+    name = str(payload.get("tool_name") or payload.get("name") or "")
+    operation = canonical_operation(name)
+    if operation in {"spawn", "assign"}:
+        return True
+    result = normalize_governed_payload(payload)
+    return bool(result.operation and result.operation.is_new_work)
 
 
 def main(argv: list[str] | None = None) -> int:
-    from conductor.providers import codex, get_provider
+    from conductor.providers import get_provider
 
     args = _parse_args(argv)
-    try:
-        provider = get_provider(args.provider)
-    except ValueError:
-        provider = codex.PROVIDER
+    payload: dict = {}
+    provider = get_provider(args.provider)
     try:
         payload = read_payload()
-        ladder = load_ladder()
-        caller = provider.resolve_caller(payload, ladder)
-        request = provider.normalize_request(payload)
-        events = read_events(caller.run_id) if caller.run_id else []
-        decision = _decide(request, ladder, events, load_enabled_tiers(ladder, models_cache_path()), caller)
-        if decision.decision == "block":
-            _append(caller.run_id, {"event": "spawn_blocked", "rule": decision.rule, "reason": decision.reason})
-        elif request.kind in {"spawn", "new_task"}:
-            for event in provider.post_approve_events(request, caller, ladder):
-                _append(caller.run_id, event)
-        write_json(provider.emit_decision(decision.decision, decision.reason))
+        if not _is_governed(payload):
+            write_json(provider.emit_decision("approve", "not new governed work"))
+            return 0
+
+        config = load_config()
+        caller = provider.resolve_caller(payload, config)
+        if caller.run_id is None:
+            decision = _ephemeral(
+                allowed=False,
+                rule="IDENTITY_UNKNOWN",
+                message="cannot resolve active run id",
+                mode=OperatingMode.UNSUPPORTED,
+                operation=normalize_governed_payload(
+                    {**payload, "provider": provider.name}
+                ).operation,
+            )
+        else:
+            store = Store(store_path(), busy_timeout_ms=config.policy.busy_timeout_ms)
+            store.heartbeat_run(
+                caller.run_id,
+                lease_seconds=max(300, config.policy.reservation_ttl_seconds * 2),
+            )
+            run = _effective_run_context(store.run_context(caller.run_id), payload)
+            decision = decide(
+                payload,
+                config,
+                store,
+                run,
+                caller,
+                enabled_tiers(config, models_cache_path()),
+                provider_name=provider.name,
+            )
+        write_json(
+            provider.emit_decision(
+                "approve" if decision.allowed else "block",
+                f"{decision.rule}: {decision.message}",
+            )
+        )
+    except (ConductorError, OSError, ValueError, json.JSONDecodeError) as exc:
+        log_error("pre_tool_use", exc)
+        governed = _is_governed(payload)
+        write_json(
+            provider.emit_decision(
+                "block" if governed else "approve",
+                "CONDUCTOR_DEGRADED: governed work denied safely"
+                if governed
+                else "conductor unavailable for an ungoverned operation",
+            )
+        )
     except BaseException as exc:
         log_error("pre_tool_use", exc)
-        write_json(provider.emit_decision("approve", "codex-conductor failed open"))
+        governed = _is_governed(payload)
+        write_json(
+            provider.emit_decision(
+                "block" if governed else "approve",
+                "CONDUCTOR_INTERNAL_ERROR: governed work denied safely"
+                if governed
+                else "conductor internal error on an ungoverned operation",
+            )
+        )
     return 0
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="codex")
+    parser.add_argument("--provider", choices=("codex", "claude"), default="codex")
     return parser.parse_args(argv)
 
 

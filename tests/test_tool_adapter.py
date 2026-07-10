@@ -8,7 +8,11 @@ class ToolAdapterTests(unittest.TestCase):
     def test_spawn_payload_normalizes_and_extracts_envelope(self):
         from conductor.tool_adapter import normalize_tool_request
 
-        payload = json.loads((FIXTURES / "hook_payloads" / "pre_tool_use_spawn.json").read_text(encoding="utf-8"))
+        payload = json.loads(
+            (FIXTURES / "hook_payloads" / "pre_tool_use_spawn.json").read_text(
+                encoding="utf-8"
+            )
+        )
         request = normalize_tool_request(payload, {})
 
         self.assertEqual(request.kind, "spawn")
@@ -20,14 +24,22 @@ class ToolAdapterTests(unittest.TestCase):
     def test_other_tool_is_ignored(self):
         from conductor.tool_adapter import normalize_tool_request
 
-        payload = json.loads((FIXTURES / "hook_payloads" / "pre_tool_use_other.json").read_text(encoding="utf-8"))
+        payload = json.loads(
+            (FIXTURES / "hook_payloads" / "pre_tool_use_other.json").read_text(
+                encoding="utf-8"
+            )
+        )
 
         self.assertEqual(normalize_tool_request(payload, {}).kind, "other")
 
     def test_invalid_envelopes_return_missing_envelope(self):
         from conductor.tool_adapter import normalize_tool_request
 
-        payload = json.loads((FIXTURES / "hook_payloads" / "pre_tool_use_spawn.json").read_text(encoding="utf-8"))
+        payload = json.loads(
+            (FIXTURES / "hook_payloads" / "pre_tool_use_spawn.json").read_text(
+                encoding="utf-8"
+            )
+        )
         cases = [
             "no envelope",
             "<CONDUCTOR_TASK>{not-json}</CONDUCTOR_TASK>",
@@ -39,6 +51,26 @@ class ToolAdapterTests(unittest.TestCase):
             with self.subTest(message=message):
                 payload["tool_input"]["message"] = message
                 self.assertIsNone(normalize_tool_request(payload, {}).envelope)
+
+    def test_provider_correlation_overrides_untrusted_tool_input(self):
+        from conductor.tool_adapter import normalize_governed_payload
+
+        payload = json.loads(
+            (FIXTURES / "hook_payloads" / "pre_tool_use_spawn.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        payload["tool_input"]["task_id"] = "spoofed-inner-id"
+        payload["tool_call_id"] = "provider-call-id"
+
+        exact = normalize_governed_payload(payload)
+        self.assertIsNotNone(exact.operation)
+        self.assertEqual(exact.operation.correlation_id, "provider-call-id")
+
+        payload.pop("tool_call_id")
+        missing = normalize_governed_payload(payload)
+        self.assertIsNotNone(missing.operation)
+        self.assertIsNone(missing.operation.correlation_id)
 
 
 if __name__ == "__main__":

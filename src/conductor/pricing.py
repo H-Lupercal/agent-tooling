@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from conductor.config import Ladder, Tier
+from conductor.schemas import RawUsage
 
 
 @dataclass(frozen=True)
@@ -26,12 +27,37 @@ def cost_usd(usage: TokenUsage, tier: Tier) -> float:
     )
 
 
-def pricing_verified(ladder: Ladder) -> bool:
-    return any(
-        tier.enabled != "never"
-        and (tier.input_usd_per_mtok > 0 or tier.cached_input_usd_per_mtok > 0 or tier.output_usd_per_mtok > 0)
-        for tier in ladder.tiers
+def raw_usage_cost_usd(usage: RawUsage, tier: Tier) -> float:
+    """Price canonical usage without double-billing cached input tokens."""
+
+    uncached_input = max(
+        usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens,
+        0,
     )
+    return (
+        uncached_input * tier.pricing.input_usd_per_mtok / 1_000_000
+        + usage.cache_read_tokens * tier.pricing.cache_read_usd_per_mtok / 1_000_000
+        + usage.cache_write_tokens * tier.pricing.cache_write_usd_per_mtok / 1_000_000
+        + usage.output_tokens * tier.pricing.output_usd_per_mtok / 1_000_000
+    )
+
+
+def tier_pricing_available(tier: Tier) -> bool:
+    pricing = tier.pricing
+    return all(
+        value > 0
+        for value in (
+            pricing.input_usd_per_mtok,
+            pricing.cache_read_usd_per_mtok,
+            pricing.cache_write_usd_per_mtok,
+            pricing.output_usd_per_mtok,
+        )
+    )
+
+
+def pricing_verified(ladder: Ladder) -> bool:
+    configured = [tier for tier in ladder.tiers if tier.enabled != "never"]
+    return bool(configured) and all(tier_pricing_available(tier) for tier in configured)
 
 
 def estimate_usd(usage: TokenUsage, tier: Tier, ladder: Ladder) -> float:

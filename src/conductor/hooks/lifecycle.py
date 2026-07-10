@@ -1,106 +1,125 @@
 from __future__ import annotations
 
-import os
-import time
-from pathlib import Path
+import argparse
+from typing import Any
 
-from conductor.config import load_ladder
+from conductor.config import load_config
+from conductor.errors import ConductorError, StateError
 from conductor.hooks.common import log_error, read_payload, write_json
-from conductor.identity import resolve_caller
-from conductor.ledger import append_event
-from conductor.pricing import estimate_usd, pricing_verified
-from conductor.rollout import latest_usage
+from conductor.ledger import store_path
+from conductor.schemas import Reservation
+from conductor.store import Store
+from conductor.tool_adapter import normalize_governed_payload
 
 
-def handle(payload: dict) -> None:
+def handle(
+    payload: dict[str, Any],
+    *,
+    provider_name: str = "codex",
+    store: Store | None = None,
+) -> tuple[Reservation, ...]:
+    """Record one provider lifecycle hook with exact correlation and costing."""
+
+    from conductor.providers import get_provider
+
+    provider = get_provider(provider_name)
     event_name = str(payload.get("hook_event_name") or payload.get("event") or "")
-    run_id = _run_id(payload)
-    thread_id = str(payload.get("thread_id") or f"unknown-{int(__import__('time').time())}")
-    model = payload.get("model")
-    if event_name in {"SubagentStart", "subagent_start"}:
-        append_event(
-            run_id,
-            {
-                "event": "subagent_start",
-                "thread_id": thread_id,
-                "parent_thread_id": payload.get("parent_thread_id"),
-                "model": model,
-                "tier": _tier_name(model),
-                "agent_type": payload.get("agent_type"),
-            },
-        )
-    elif event_name in {"SubagentStop", "subagent_stop"}:
-        append_event(run_id, {"event": "subagent_stop", "thread_id": thread_id, "status": payload.get("status"), "model": model, "tier": _tier_name(model)})
-        _record_cost(run_id, thread_id, model, payload.get("agent_transcript_path") or payload.get("transcript_path"))
-
-
-def _tier_name(model: str | None) -> str:
-    try:
-        ladder = load_ladder()
-    except Exception:
-        return "unknown"
-    tier = ladder.tier_for_model(str(model or ""))
-    return tier.name if tier else "unknown"
-
-
-def _run_id(payload: dict) -> str:
-    explicit = payload.get("root_thread_id") or payload.get("run_id")
-    if explicit:
-        return str(explicit)
-    try:
-        ladder = load_ladder()
-        sessions_root = Path(os.environ.get("CODEX_CONDUCTOR_SESSIONS_ROOT", Path.home() / ".codex" / "sessions"))
-        caller = resolve_caller(payload, ladder, sessions_root)
-        if caller.run_id:
-            return caller.run_id
-    except Exception:
-        pass
-    return f"unknown-{int(time.time())}"
-
-
-def _record_cost(run_id: str, thread_id: str, model: str | None, transcript_path: str | None) -> None:
-    ladder = load_ladder()
-    tier = ladder.tier_for_model(str(model or "")) or ladder.tiers[0]
-    usage = latest_usage(Path(transcript_path)) if transcript_path else None
-    if usage is None:
-        append_event(
-            run_id,
-            {"event": "cost_recorded", "thread_id": thread_id, "model": model, "tier": tier.name, "tokens": None, "usd": tier.est_task_usd, "estimated": True},
-        )
-        return
-    append_event(
-        run_id,
-        {
-            "event": "cost_recorded",
-            "thread_id": thread_id,
-            "model": model,
-            "tier": tier.name,
-            "tokens": usage.as_dict(),
-            "usd": estimate_usd(usage, tier, ladder),
-            "estimated": not pricing_verified(ladder),
-        },
+    if event_name in {"PostToolUse", "post_tool_use"}:
+        raw_tool_name = payload.get("tool_name") or payload.get("name")
+        if isinstance(raw_tool_name, str) and raw_tool_name:
+            operation = normalize_governed_payload(payload).operation
+            if operation is None or not operation.is_new_work:
+                return ()
+    config = load_config()
+    database = store or Store(
+        store_path(), busy_timeout_ms=config.policy.busy_timeout_ms
     )
+    if event_name in {"PostToolUse", "post_tool_use"}:
+        link = provider.correlation_link(payload)
+        if link is None:
+            raise StateError(
+                "PostToolUse did not expose an exact tool-call to child-id mapping"
+            )
+        linked = database.link_correlation(
+            link.run_id,
+            source_correlation=link.source_correlation,
+            alias=link.child_alias,
+            source_event_id=link.source_event_id,
+        )
+        database.heartbeat_run(
+            link.run_id,
+            lease_seconds=max(300, config.policy.reservation_ttl_seconds * 2),
+        )
+        return (linked,)
+    run_id = _first_string(payload, ("root_thread_id", "run_id", "session_id"))
+    if run_id is None:
+        raise StateError("lifecycle payload has no run id")
+    correlation = _first_string(
+        payload,
+        (
+            "correlation_id",
+            "tool_call_id",
+            "lifecycle_id",
+            "task_id",
+            "thread_id",
+            "agent_id",
+        ),
+    )
+    reservation_model: str | None = None
+    reservation_estimate = 0.0
+    reservation: Reservation | None = None
+    if correlation is not None:
+        try:
+            reservation = database.reservation(correlation, run_id=run_id)
+        except StateError:
+            reservation = None
+        if reservation is not None:
+            reservation_model = reservation.model
+            reservation_estimate = reservation.estimated_usd
+
+    normalized_payload = dict(payload)
+    if reservation is not None and reservation.correlation_id is not None:
+        normalized_payload["correlation_id"] = reservation.correlation_id
+    events = provider.normalize_lifecycle_events(
+        normalized_payload,
+        config,
+        reservation_model=reservation_model,
+        reservation_estimate_usd=reservation_estimate,
+    )
+    recorded = tuple(database.record_lifecycle(event) for event in events)
+    database.heartbeat_run(
+        run_id,
+        lease_seconds=max(300, config.policy.reservation_ttl_seconds * 2),
+    )
+    return recorded
 
 
 def main(argv: list[str] | None = None) -> int:
-    import argparse
-
-    from conductor.providers import codex, get_provider
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default="codex")
-    args = parser.parse_args(argv)
+    args = _parse_args(argv)
     try:
-        provider = get_provider(args.provider)
-    except ValueError:
-        provider = codex.PROVIDER
-    try:
-        provider.handle_lifecycle(read_payload())
+        handle(read_payload(), provider_name=args.provider)
         write_json({})
+    except (ConductorError, OSError, ValueError) as exc:
+        log_error("lifecycle", exc)
+        write_json({"conductor": {"recorded": False, "error": type(exc).__name__}})
     except BaseException as exc:
         log_error("lifecycle", exc)
-        write_json({})
+        write_json({"conductor": {"recorded": False, "error": "InternalError"}})
     return 0
+
+
+def _first_string(payload: dict[str, Any], names: tuple[str, ...]) -> str | None:
+    for name in names:
+        value = payload.get(name)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", choices=("codex", "claude"), default="codex")
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":

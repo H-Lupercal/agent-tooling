@@ -5,7 +5,9 @@ from pathlib import Path
 
 
 class ClaudeInstallTests(unittest.TestCase):
-    def test_install_merges_settings_preserves_foreign_hooks_and_uninstalls_cleanly(self):
+    def test_install_merges_settings_preserves_foreign_hooks_and_uninstalls_cleanly(
+        self,
+    ):
         from conductor.install import install, uninstall
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -18,10 +20,25 @@ class ClaudeInstallTests(unittest.TestCase):
                         "model": "opus",
                         "hooks": {
                             "SessionStart": [
-                                {"hooks": [{"type": "command", "command": "/usr/local/bin/foreign-session"}]}
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "/usr/local/bin/foreign-session",
+                                        }
+                                    ]
+                                }
                             ],
                             "PreToolUse": [
-                                {"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/local/bin/foreign-pre"}]}
+                                {
+                                    "matcher": "Bash",
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "/usr/local/bin/foreign-pre",
+                                        }
+                                    ],
+                                }
                             ],
                         },
                     }
@@ -49,21 +66,60 @@ class ClaudeInstallTests(unittest.TestCase):
             self.assertIn("SubagentStart", hooks)
             self.assertIn("SubagentStop", hooks)
             self.assertEqual(hooks["PreToolUse"][-1]["matcher"], "Task")
-            self.assertIn("--provider claude", hooks["PreToolUse"][-1]["hooks"][0]["command"])
+            self.assertIn(
+                "--provider claude", hooks["PreToolUse"][-1]["hooks"][0]["command"]
+            )
             self.assertIn("CODEX_CONDUCTOR_HOME", wrapper_text)
             self.assertIn(str(claude_home / "conductor"), wrapper_text)
-            self.assertTrue((claude_home / "CLAUDE.md").read_text(encoding="utf-8").count("codex-conductor policy") >= 2)
+            self.assertTrue(
+                (claude_home / "CLAUDE.md")
+                .read_text(encoding="utf-8")
+                .count("codex-conductor policy")
+                >= 2
+            )
 
             install(provider="claude", claude_home=claude_home)
-            self.assertEqual(len(json.loads(settings_path.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]), 2)
+            self.assertEqual(
+                len(
+                    json.loads(settings_path.read_text(encoding="utf-8"))["hooks"][
+                        "PreToolUse"
+                    ]
+                ),
+                2,
+            )
 
             uninstall(provider="claude", claude_home=claude_home)
             uninstalled = json.loads(settings_path.read_text(encoding="utf-8"))
-            self.assertEqual(list(uninstalled["hooks"]["SessionStart"]), [{"hooks": [{"type": "command", "command": "/usr/local/bin/foreign-session"}]}])
-            self.assertEqual(list(uninstalled["hooks"]["PreToolUse"]), [{"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/local/bin/foreign-pre"}]}])
+            self.assertEqual(
+                list(uninstalled["hooks"]["SessionStart"]),
+                [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "/usr/local/bin/foreign-session",
+                            }
+                        ]
+                    }
+                ],
+            )
+            self.assertEqual(
+                list(uninstalled["hooks"]["PreToolUse"]),
+                [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [
+                            {"type": "command", "command": "/usr/local/bin/foreign-pre"}
+                        ],
+                    }
+                ],
+            )
             self.assertNotIn("SubagentStart", uninstalled["hooks"])
             self.assertNotIn("SubagentStop", uninstalled["hooks"])
-            self.assertNotIn("codex-conductor policy", (claude_home / "CLAUDE.md").read_text(encoding="utf-8"))
+            self.assertNotIn(
+                "codex-conductor policy",
+                (claude_home / "CLAUDE.md").read_text(encoding="utf-8"),
+            )
 
 
 if __name__ == "__main__":

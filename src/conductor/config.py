@@ -15,7 +15,6 @@ from conductor.schemas import HIGH_RISK_TRIGGERS as HIGH_RISK_TRIGGERS
 from conductor.schemas import TASK_CLASSES as TASK_CLASSES
 from conductor.schemas import BudgetConfig, ConductorConfig, PolicyConfig, TierConfig
 
-
 Budget = BudgetConfig
 Policy = PolicyConfig
 Tier = TierConfig
@@ -91,9 +90,9 @@ def enabled_tiers(ladder: Ladder, models_cache_path: Path) -> list[int]:
     available = _available_model_slugs(models_cache_path)
     enabled: list[int] = []
     for index, tier in enumerate(ladder.tiers):
-        if tier.enabled == "always":
-            enabled.append(index)
-        elif tier.enabled == "auto" and tier.model in available:
+        if tier.enabled == "always" or (
+            tier.enabled == "auto" and tier.model in available
+        ):
             enabled.append(index)
     return enabled
 

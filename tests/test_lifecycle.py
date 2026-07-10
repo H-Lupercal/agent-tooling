@@ -10,7 +10,6 @@ from conductor.schemas import LifecycleEvent
 from tests.helpers import DEFAULT_CONFIG, FIXTURES, restore_env, set_env, write_config
 from tests.test_store import request
 
-
 TERMINAL_OR_RECOVERABLE_STATES = {
     "stopped",
     "costed",
@@ -161,17 +160,35 @@ def test_duplicate_stop_costs_once(store) -> None:
     assert store.cost_record_count(event_id="task-1-stop") == 1
 
 
-def test_legacy_hook_start_stop_record_lifecycle_and_cost(tmp_path: Path) -> None:
+def test_hook_start_stop_record_strict_lifecycle_and_cost_exactly_once(
+    tmp_path: Path,
+) -> None:
     from conductor.hooks.lifecycle import handle
-    from conductor.ledger import read_events
+    from conductor.store import Store
 
+    home = tmp_path / "home"
     old = set_env(
-        CODEX_CONDUCTOR_HOME=str(tmp_path / "home"),
+        CODEX_CONDUCTOR_HOME=str(home),
         CODEX_CONDUCTOR_CONFIG=str(
             write_config(tmp_path / "conductor.toml", DEFAULT_CONFIG)
         ),
     )
     try:
+        database = Store(home / "state" / "conductor.db")
+        database.create_run(
+            "root-run", provider="codex", generation=1, mode="admission"
+        )
+        assert database.reserve(
+            request(
+                "root-run",
+                "task-hook",
+                correlation_id="call-hook",
+                model="gpt-5.4",
+                estimate=0.6,
+            ),
+            concurrency_cap=4,
+            budget_cap=10.0,
+        ).allowed
         start = json.loads(
             (FIXTURES / "hook_payloads" / "subagent_start.json").read_text(
                 encoding="utf-8"
@@ -184,17 +201,135 @@ def test_legacy_hook_start_stop_record_lifecycle_and_cost(tmp_path: Path) -> Non
         )
         start["agent_transcript_path"] = str(FIXTURES / "rollout_subagent.jsonl")
         stop["agent_transcript_path"] = str(FIXTURES / "rollout_subagent.jsonl")
+        start["tool_call_id"] = "call-hook"
+        stop["tool_call_id"] = "call-hook"
 
         handle(start)
         handle(stop)
-        events = read_events("root-run")
+        stop["event_id"] = "provider-retry-with-another-id"
+        handle(stop)
 
-        assert [event["event"] for event in events] == [
-            "subagent_start",
-            "subagent_stop",
-            "cost_recorded",
-        ]
-        assert events[-1]["tokens"]["total_tokens"] == 17753
-        assert events[-1]["usd"] > 0
+        assert database.reservation("call-hook").state == "costed"
+        assert database.cost_record_count(event_id="cost-call-hook") == 1
+        assert (
+            database.raw_usage_count(
+                run_id="root-run", source_event_id="usage-call-hook"
+            )
+            == 1
+        )
+        assert database.total_cost_usd(run_id="root-run") > 0
     finally:
         restore_env(old)
+
+
+def test_post_tool_use_links_concurrent_child_identity_before_lifecycle(
+    tmp_path: Path,
+) -> None:
+    from conductor.hooks.lifecycle import handle
+    from conductor.store import Store
+
+    old = set_env(
+        CODEX_CONDUCTOR_CONFIG=str(
+            write_config(tmp_path / "conductor.toml", DEFAULT_CONFIG)
+        )
+    )
+    try:
+        database = Store(tmp_path / "linked.db")
+        database.create_run(
+            "root-run", provider="codex", generation=1, mode="admission"
+        )
+        assert database.reserve(
+            request(
+                "root-run",
+                "linked-task",
+                correlation_id="tool-call-1",
+                model="gpt-5.4",
+                estimate=0.6,
+            ),
+            concurrency_cap=4,
+            budget_cap=10.0,
+        ).allowed
+
+        handle(
+            {
+                "hook_event_name": "PostToolUse",
+                "root_thread_id": "root-run",
+                "thread_id": "root-run",
+                "tool_call_id": "tool-call-1",
+                "tool_response": {"agent_id": "child-1"},
+            },
+            provider_name="codex",
+            store=database,
+        )
+        for event_name in ("SubagentStart", "SubagentStop"):
+            handle(
+                {
+                    "hook_event_name": event_name,
+                    "root_thread_id": "root-run",
+                    "thread_id": "child-1",
+                    "model": "gpt-5.4",
+                    "agent_transcript_path": str(FIXTURES / "rollout_subagent.jsonl"),
+                },
+                provider_name="codex",
+                store=database,
+            )
+    finally:
+        restore_env(old)
+
+    assert database.reservation("child-1", run_id="root-run").state == "costed"
+    assert database.cost_record_count(event_id="cost-tool-call-1") == 1
+
+
+def test_codex_post_tool_link_never_treats_outer_caller_as_child() -> None:
+    from conductor.providers.codex import PROVIDER
+
+    assert (
+        PROVIDER.correlation_link(
+            {
+                "root_thread_id": "run-1",
+                "thread_id": "caller-thread",
+                "agent_id": "caller-agent",
+                "tool_call_id": "tool-1",
+            }
+        )
+        is None
+    )
+    direct = PROVIDER.correlation_link(
+        {
+            "root_thread_id": "run-1",
+            "tool_call_id": "t" * 128,
+            "child_id": "child-1",
+        }
+    )
+    assert direct is not None
+    assert direct.child_alias == "child-1"
+    assert len(direct.source_event_id) <= 128
+
+
+def test_post_tool_feedback_is_an_explicit_noop(tmp_path: Path) -> None:
+    from conductor.hooks.lifecycle import handle
+    from conductor.store import Store
+
+    old = set_env(
+        CODEX_CONDUCTOR_CONFIG=str(
+            write_config(tmp_path / "conductor.toml", DEFAULT_CONFIG)
+        )
+    )
+    try:
+        database = Store(tmp_path / "feedback.db")
+        database.create_run("run-1", provider="codex", generation=1, mode="admission")
+        recorded = handle(
+            {
+                "hook_event_name": "PostToolUse",
+                "root_thread_id": "run-1",
+                "tool_call_id": "message-1",
+                "tool_name": "send_message",
+                "tool_input": {"target": "child-1", "message": "status?"},
+            },
+            provider_name="codex",
+            store=database,
+        )
+    finally:
+        restore_env(old)
+
+    assert recorded == ()

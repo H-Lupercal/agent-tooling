@@ -1,350 +1,269 @@
 # codex-conductor
 
-`codex-conductor` is a cost-aware orchestration layer for **Codex** and **Claude
-Code** subagents. It keeps the primary model on the frontier tier, routes bounded
-delegated work down to cheaper enabled models, and uses each runtime's **native
-hooks** to block subagent spawns that violate the task envelope, tier ladder,
-depth limit, concurrency caps, or delegated-spawn budget.
+Codex Conductor is a local admission, routing, and accounting guardrail for
+developer agents launched by Codex CLI or Claude Code. It validates a bounded
+task envelope, applies model-tier and risk policy, reserves concurrency and
+budget atomically, and correlates lifecycle usage without a daemon or remote
+service.
 
-It is a Python package with Pydantic and PlatformDirs as its only runtime
-dependencies. It does not modify the Codex or Claude Code binary and it does not run a wrapper daemon.
-Enforcement happens entirely through each provider's native hook system and is
-intentionally a **guardrail, not a hard billing or security boundary**: hooks
-fail open on internal errors, and already-running subagents are never killed.
+The public interface is the `conductor` command. State is stored in a local
+SQLite WAL database. Conductor does not proxy model traffic, hold provider
+credentials, or claim to be a sandbox or billing authority.
+
+## Why use it?
+
+Agent delegation becomes difficult to audit as soon as multiple tasks launch at
+once. A plain prompt cannot atomically enforce a budget, prove which child a
+usage record belongs to, or distinguish an unsupported provider feature from a
+real routing decision. Conductor makes those states explicit:
+
+- one strict task-envelope schema with bounded identifiers, paths, and checks;
+- exact task-class ownership and high-risk escalation;
+- atomic SQLite reservations for concurrency and run-budget limits;
+- provider capability modes that never imply control the provider does not
+  expose;
+- PostToolUse child-ID linking followed by idempotent lifecycle and cost events;
+- measured and estimated dollars reported separately;
+- transactional installation with ownership hashes, rollback, repair, and
+  conservative uninstall behavior.
 
 ## Requirements
 
-- **Python 3.11 or newer.** The config loader uses the stdlib `tomllib` module
-  and the hooks use `datetime.UTC`, both introduced in 3.11.
-- **Linux, macOS, or Windows.** The ledger serializes concurrent writes with a
-  portable advisory file lock - `fcntl.flock` on POSIX, `msvcrt.locking` on
-  Windows.
-- **Codex CLI** and/or **Claude Code**, each with native hook support.
+- Python 3.11–3.13;
+- Codex CLI 0.x and/or Claude Code 1.x–2.x with the hook events declared by the
+  packaged capability contract;
+- Linux, macOS, or Windows.
 
-For checkout development, install the package and its test tools with
-`pip install -e '.[dev]'`. This adds the `conductor` command - see
-[The `conductor` command](#the-conductor-command).
-
-## What It Installs
-
-The installer writes only marked, managed files or blocks, so it can be cleanly
-uninstalled.
-
-For Codex (`bash install.sh`):
-
-- `~/.codex/hooks.json`
-- `~/.codex/conductor/` (config, hook wrappers, ledger state)
-- a managed `[agents]` block in `~/.codex/config.toml`
-- a managed delegation-policy block in `~/AGENTS.md`
-
-For Claude Code (`bash install.sh --provider claude`):
-
-- merged hook entries in `~/.claude/settings.json` (existing non-conductor hooks
-  are preserved)
-- `~/.claude/conductor/` (config, hook wrappers, ledger state)
-- a managed delegation-policy block in `~/.claude/CLAUDE.md`
-
-The installed hook wrappers import the installed package, and the managed policy
-uses its console entry point. Runtime operation does not depend on a source
-checkout.
-
-## How It Works
-
-Codex reads the installed `~/AGENTS.md` policy; Claude Code reads the installed
-`~/.claude/CLAUDE.md` policy. Both instruct the primary model to inspect state
-before delegating:
-
-```bash
-conductor status --pretty
-```
-
-That reports the enabled tiers, current spend, reserved budget, active subagents,
-and warnings.
-
-Every governed spawn must carry a machine-readable task envelope in its prompt:
-
-```text
-<CONDUCTOR_TASK>{"schema_version":1,"task_name":"tests_ledger","task_class":"tests","risk_triggers":[],"owned_paths":["tests/test_ledger.py"],"acceptance_checks":["python3 -m unittest tests.test_ledger -v"],"new_task":true}</CONDUCTOR_TASK>
-```
-
-The `PreToolUse` hook inspects the requested model and envelope before Codex
-spawns or assigns a new task, or before Claude Code invokes the `Task` tool. Each
-block reason is recorded in the ledger under a rule code:
-
-- **R1** — the root run identity cannot be resolved
-- **R2** — the task envelope is missing or invalid
-- **R3** — the spawn would exceed `policy.max_depth`
-- **R5** — the caller's tier has `may_spawn = false`
-- **R6** — the requested model is not in the enabled ladder
-- **R6_CLASS** — the task class is not routed to its cheapest enabled owner tier
-- **R7** — high-risk work (task class `high_risk` or any `risk_triggers`) is
-  routed below the frontier tier
-- **R8** — the child is not strictly cheaper than the parent (including "never
-  spawn a stronger model"), except the root's limited same-tier frontier
-  exception for high-risk work
-- **R9** — the requested tier is already at its `max_concurrent` cap
-- **R10** — the delegated-spawn budget would be exceeded (if `budget.enforce =
-  false`, this warns and approves instead of blocking)
-
-A caller whose model is outside the ladder is logged and allowed through (rule
-R4); enforcement resumes for any governed child it spawns.
-
-Lifecycle hooks (`SubagentStart` / `SubagentStop`) append subagent start, stop,
-and cost records to the per-run ledger under
-`~/.codex/conductor/state/<run-id>/` or `~/.claude/conductor/state/<run-id>/`.
-
-## Model Ladder
-
-Tiers are listed **strongest first**; "cheaper" means later in the list.
-Enforcement depends on this ordering — do not reorder tiers when editing config.
-
-**The model ids below are defaults you are expected to edit** to match the models
-your account can actually run. The Codex ids in particular are placeholders.
-
-Codex defaults (`~/.codex/conductor/conductor.toml`):
-
-| Tier | Model | May spawn | Intended Work |
-|---|---|---|---|
-| `frontier` | `gpt-5.5` | yes | architecture, high-risk work, integration, review gates |
-| `standard` | `gpt-5.4` | yes | implementation, refactors, debugging, cross-module changes |
-| `mini` | `gpt-5.4-mini` | yes | tests, docs, mechanical edits, renames, config changes |
-| `spark` | `gpt-5.3-codex-spark` | no | search, summarization, boilerplate, formatting, data extraction |
-
-Claude Code defaults (`~/.claude/conductor/conductor.toml`):
-
-| Tier | Model | May spawn | Intended Work |
-|---|---|---|---|
-| `frontier` | `claude-opus-4-8` | yes | architecture, high-risk work, integration, review gates |
-| `standard` | `claude-sonnet-5` | no | implementation, refactors, debugging, cross-module changes |
-| `mini` | `claude-haiku-4-5` | no | tests, docs, mechanical edits, searches, summaries, formatting, data extraction |
-
-`enabled` may be `always`, `auto`, or `never`. An `auto` tier is enabled only
-when its model appears in Codex's local model cache
-(`~/.codex/models_cache.json`); the Codex `mini` and `spark` tiers ship as
-`auto`. When an owner tier is unavailable, that task class falls back to the next
-stronger **enabled** tier.
-
-Because `may_spawn = false` on every Claude tier except `frontier`, Claude
-delegation is a **single hop**: the primary spawns subagents, and those subagents
-do the work themselves rather than re-delegating.
-
-Claude `Task` calls may pass the model as a full id or as an alias — `opus`,
-`sonnet`, `haiku`, `fable` — which conductor normalizes to the configured model
-ids before enforcing the ladder.
+Provider payloads do change. `conductor doctor --strict` checks the installed CLI
+version and local contract before you rely on enforcement.
 
 ## Install
 
-Run the offline test suite first:
+Install the published package in an isolated environment, then preview its
+filesystem changes:
 
 ```bash
-cd /path/to/codex-conductor
-pip install -e '.[dev]'
-python3 -m unittest discover -s tests -v
+python -m pip install codex-conductor
+conductor install --dry-run
+conductor install
+conductor doctor
 ```
 
-Install into the real Codex home:
+Claude Code uses its own home and policy file:
+
+```bash
+conductor install --provider claude --dry-run
+conductor install --provider claude
+conductor doctor --provider claude
+```
+
+The checkout launchers are thin aliases for the same installed command:
 
 ```bash
 bash install.sh
+bash uninstall.sh
 ```
 
-On Windows (PowerShell): `.\install.ps1`.
+PowerShell users can run `./install.ps1` and `./uninstall.ps1`.
 
-The installer **refuses to proceed** if it finds unmanaged `[agents]`,
-`[hooks]`, or `[rollout_budget]` tables in `~/.codex/config.toml`, or a foreign
-`~/.codex/hooks.json`. Use `--dry-run` to preview the exact diffs first.
+Codex requires persisted trust for installed hook hashes. Review and approve the
+Conductor hooks in a trusted interactive session; do not use
+`--dangerously-bypass-hook-trust` as an installation shortcut. Configure real
+model prices, start a provider session, and then use `conductor doctor --strict`
+as the enforcement-readiness gate. A fresh install intentionally reports
+warnings for unverified prices and a not-yet-created run store.
 
-Install into the real Claude Code home:
+### Installer behavior
+
+The installer stages every new file before committing and rolls the whole file
+set back if any replacement fails. It rejects symbolic-link/reparse-point
+targets, refuses foreign Codex hook files or conflicting unmanaged config
+tables, and records SHA-256 ownership in
+`~/.codex/conductor/managed-manifest.json` (or the Claude equivalent).
+
+User-editable `conductor.toml` is seeded once and preserved on upgrades.
+Provider settings and policy files are composite: foreign content is retained
+while only marked Conductor blocks or hook entries are replaced. Fully managed
+wrappers must match their recorded hash; restore them explicitly with:
 
 ```bash
-bash install.sh --provider claude
+conductor install --repair
 ```
 
-On Windows (PowerShell): `.\install.ps1 --provider claude`.
+Uninstall removes an owned file only while its hash still matches. A locally
+modified managed file is preserved for manual inspection.
 
-The Claude installer merges managed hook entries into `~/.claude/settings.json`
-and preserves existing non-conductor hooks.
+## Capability modes
 
-## Required Hook Trust
+Every run records one provider mode:
 
-After installing Codex support, open the Codex CLI and trust the new hooks once:
+| Mode | What Conductor can truthfully do |
+|---|---|
+| `routing` | Validate and enforce the selected child model, reserve capacity, and correlate lifecycle cost. |
+| `admission` | Allow or deny a launch, but not assert that a cheaper child model was selected. |
+| `observe` | Record observations; never claim a block or reservation was enforced. |
+| `unsupported` | Deny new governed work because required identity or lifecycle capability is absent. |
+
+The packaged Codex contract is admission-only because its spawn input has no
+child-model selector. It permits the bounded root same-tier exception while
+reserving conservative frontier capacity and cost, but a cross-tier Codex
+delegation is denied with `ROUTING_REQUIRED` instead of being counted as
+fictitious savings. Claude's `Task` input exposes a model selector and can
+operate in routing mode when its exact PostToolUse child-ID link is present.
+
+Non-governed tools and ordinary feedback messages bypass policy and state.
+Unexpected failures deny new governed work safely; they do not block unrelated
+developer operations.
+
+## Task envelope
+
+Every new governed task carries exactly one envelope in its prompt:
 
 ```text
-/hooks
+<CONDUCTOR_TASK>{"schema_version":1,"task_name":"tests_ledger","task_class":"tests","risk_triggers":[],"owned_paths":["tests/test_ledger.py"],"acceptance_checks":["python -m pytest tests/test_ledger.py -q"],"new_task":true}</CONDUCTOR_TASK>
 ```
 
-Codex records hook trust by hash, so it may ask you to review and re-trust if the
-hook definitions change. For one-off vetted automation you can also run:
+`task_class` must be one of the closed classes in the installed policy. Risk
+triggers are also closed; unknown values are rejected rather than silently
+ignored. Paths must be normalized relative POSIX paths with no `..` segments.
+Follow-up and message tools count as new work only when their envelope sets
+`new_task=true` and an `operation_intent` matching that tool.
+
+Policy evaluation is ordered and stable. Important decision rules include:
+
+- `MISSING_ENVELOPE`, `INVALID_ENVELOPE`, `ENVELOPE_OVERSIZED`;
+- `DEPTH_LIMIT`, `CALLER_MAY_NOT_SPAWN`, `UNKNOWN_CALLER_MODEL`;
+- `FRONTIER_UNAVAILABLE`, `STRONGER_CHILD_FORBIDDEN`,
+  `STRICTLY_CHEAPER_REQUIRED`, `SAME_TIER_LIMIT`;
+- `MODEL_MISMATCH`, `ROUTING_REQUIRED`;
+- `CONCURRENCY_CAP`, `BUDGET_CAP`, `BUDGET_CAP_WARNING`;
+- `CONFIG_DRIFT`, `STALE_GENERATION`, `RUN_LEASE_EXPIRED`.
+
+Decisions and reservations share one SQLite transaction. Concurrent hooks
+cannot all observe stale capacity and oversubscribe a tier or budget.
+
+## Configuration
+
+Installed configuration lives at:
+
+- Codex: `~/.codex/conductor/conductor.toml`
+- Claude: `~/.claude/conductor/conductor.toml`
+
+Tiers are ordered strongest to cheapest. Their task classes must form an exact
+partition; model IDs and tier names must be unique; relative cost weights must
+strictly decrease. `enabled` is `always`, `auto`, or `never`. Codex auto tiers
+are enabled only when the exact model slug is present in the configured model
+cache.
+
+The bundled model IDs are examples for the supported contract, and bundled
+prices deliberately start at zero. Configure rates that apply to your account
+before enforcing dollar caps. If any enabled tier lacks a complete set of
+nonzero input, cache-read, cache-write, and output rates, Conductor retains raw
+usage but charges the explicit reservation estimate and labels it estimated.
+
+The budget can be overridden for one process with
+`CONDUCTOR_RUN_USD_CAP=<positive finite number>`.
+
+## Lifecycle and accounting
+
+The lifecycle path is deliberately strict:
+
+1. PreToolUse reserves by the provider tool-call ID.
+2. PostToolUse links that call ID to the returned child agent/thread ID.
+3. SubagentStart and SubagentStop resolve the alias to the original reservation.
+4. One canonical cost event and one immutable raw-usage event are recorded.
+
+Retries reuse stable identifiers and cannot double-charge. If a provider omits
+the correlation bridge, Conductor creates an explicit recoverable orphan instead
+of guessing from launch order. Inspect or resolve those records with:
 
 ```bash
-codex exec --dangerously-bypass-hook-trust "..."
+conductor recover --run <run-id> --json
+conductor recover --run <run-id> --reservation <id> --outcome failed
 ```
 
-Use that only when you already trust the installed hook source.
+An approved reservation that never starts expires after its configured TTL. A
+started child never silently expires or releases capacity; after the TTL it is
+flagged for explicit recovery and continues to hold concurrency and budget
+until a terminal event or operator resolution arrives.
 
-For Claude Code, review `~/.claude/settings.json` after install if your setup
-requires hook approval or managed-settings review.
+Transcript readers are bounded, reject symlink files, and prefer a child's own
+transcript. Parent sidechain usage is not assigned to a child when exact
+correlation is unavailable.
 
-## The `conductor` command
-
-An editable development install from the checkout adds a single `conductor` entry point:
-
-```bash
-pip install -e '.[dev]'
-```
-
-Use `-e` so local source changes are reflected during development. Normal wheel
-installs are supported and contain all runtime assets. The command groups every
-subcommand:
+## Commands
 
 ```bash
-conductor status --provider codex --pretty
-conductor report --provider claude --last
-conductor doctor --provider claude
-conductor install --provider claude
-conductor uninstall
-conductor gc --keep 20            # keep the newest 20 run ledgers, delete the rest
-conductor gc --older-than-days 30 # delete run ledgers older than 30 days
-```
-
-Run `conductor gc` between sessions, not during an active run.
-
-## Daily Use
-
-Run these from the repository checkout. By default they read the **Codex** home
-(`~/.codex/conductor`); pass `--provider claude` (below) or set
-`CODEX_CONDUCTOR_HOME=~/.claude/conductor` to target a Claude Code install.
-
-Inspect the current run state:
-
-```bash
-conductor status --pretty
-```
-
-Render the latest cost report:
-
-```bash
+conductor status --last --pretty
+conductor status --run <run-id> --pretty
 conductor report --last
+conductor report --run <run-id> --json
+conductor doctor --strict
+conductor install --dry-run
+conductor install --repair
+conductor uninstall
+conductor recover --run <run-id> --json
+conductor gc --keep 20
+conductor gc --older-than-days 30
+conductor gc --keep 20 --execute
+conductor migrate-v1 old.toml v2-candidate.toml
 ```
 
-Report a specific run, or emit JSON:
+Invalid or missing run IDs return nonzero; there is no synthetic `none` run.
+`gc` prints a lease-safe plan by default. It mutates state only with
+`--execute`, and an active run lease is never eligible.
+
+The report separates measured and estimated spend. Projected savings are shown
+only for routing-eligible decisions and are labeled as a configured task-estimate
+counterfactual. Admission and observe runs report savings as unavailable.
+
+## Migrating from v1
+
+Version 2 intentionally removes the JSONL event ledger, FIFO lifecycle matching,
+legacy rule codes, and fail-open governed launches. It also changes the config
+schema from `[[tier]]` plus flat prices to `[[tiers]]` and a nested
+`[tiers.pricing]` table.
+
+Migration is offline and never activates its output:
 
 ```bash
-conductor report --run <run-id>
-conductor report --last --json
+conductor migrate-v1 ~/.codex/conductor/old.toml ./v2-candidate.toml
 ```
 
-To inspect a Claude Code install, add `--provider claude` to either command:
+Review the candidate, verify model IDs and rates, then place it deliberately.
+The source is not modified and an existing destination is refused unless
+`--overwrite` is explicit.
+
+## Security model
+
+Conductor is a cost and orchestration guardrail, not a process sandbox. Provider
+hooks, the provider CLI, and the local user account remain trusted. An agent with
+permission to alter its own hook configuration or database can bypass it.
+
+Conductor does provide bounded parsers, strict schemas, fail-closed governed
+operations, atomic state, no-follow installer checks, immutable raw usage,
+manifest drift detection, and secret-free local error logging. Report security
+issues privately as described in `SECURITY.md`.
+
+## Development
+
+From a source checkout:
 
 ```bash
-conductor status --provider claude --pretty
-conductor report --provider claude --last
+python -m venv .venv
+. .venv/bin/activate
+pip install -e '.[dev]'
+make check PYTHON=.venv/bin/python
+make release-check PYTHON=.venv/bin/python
+python -m compileall src/conductor
 ```
 
-The installed policy tells the primary agent to append the report at the end of
-each delegated run.
+The release gate runs Ruff formatting and linting, Pyright, branch coverage,
+100-process reservation stress tests, offline wheel and sdist installs, a full
+installed-hook lifecycle smoke test, dependency auditing, SBOM generation,
+artifact metadata checks, and cross-platform CI. See `CONTRIBUTING.md` and
+`docs/RELEASING.md`.
 
-## Health check
+## License
 
-Verify an install end-to-end for either provider:
-
-```bash
-conductor doctor --provider codex
-conductor doctor --provider claude
-```
-
-`doctor` checks Python/platform support, config validity and pricing, hook
-installation, the delegation-policy block, and (for Codex) the model cache. It
-prints one line per check and exits non-zero if any check fails. Add `--json`
-for machine-readable output.
-
-## Cost Report
-
-The report groups spend by tier and estimates savings against a **frontier
-baseline** — the hypothetical cost of every recorded token if it had all run on
-the frontier tier. That baseline assumes identical token counts across tiers and
-that all delegated work would otherwise have been done at frontier, so treat
-`savings_pct` as an optimistic estimate, not an exact figure.
-
-## Pricing
-
-Default prices are placeholders. Until you edit the installed config, reports
-print:
-
-```text
-PRICING UNVERIFIED
-```
-
-Set real prices in the provider's installed config:
-
-```text
-~/.codex/conductor/conductor.toml     # Codex
-~/.claude/conductor/conductor.toml    # Claude Code
-```
-
-Until prices are set, budget estimates and reports use relative cost weights
-(`relative_cost_weight`) rather than real dollar pricing.
-
-## Environment Variables
-
-The Claude install sets these same `CODEX_`-prefixed variables to its `~/.claude`
-paths, so the names apply to both providers.
-
-- `CODEX_CONDUCTOR_HOME` — state/config root; default `~/.codex/conductor`
-- `CODEX_CONDUCTOR_CONFIG` — config file path; default
-  `$CODEX_CONDUCTOR_HOME/conductor.toml`, falling back to the packaged default
-- `CONDUCTOR_RUN_USD_CAP` — override the delegated-spawn budget for the current
-  process
-- `CODEX_CONDUCTOR_SESSIONS_ROOT` — Codex rollout root; default `~/.codex/sessions`
-- `CODEX_MODELS_CACHE` — model cache path; default `~/.codex/models_cache.json`
-- `RUN_LIVE=1` — enables the opt-in live probe / E2E scripts
-
-## Guarantees & Limitations
-
-- **Fail-open.** Hooks that hit an unexpected internal error approve the request
-  and log to `state/errors.log` so the agent is never bricked. Controlled policy
-  failures (missing envelope, budget overflow, etc.) return explicit blocks.
-- **No retroactive enforcement.** Budget and concurrency limits apply only to
-  new governed spawns. Already-running subagents are never killed.
-- **Not a security boundary.** A determined agent that omits the envelope or
-  calls an unmatched tool is simply not governed. This is a cost guardrail, not a
-  sandbox.
-- **Estimated costs.** With `PRICING UNVERIFIED`, all dollar figures are relative
-  weights, not real spend.
-
-## Verification
-
-Offline verification (no provider/API usage):
-
-```bash
-cd /path/to/codex-conductor
-python3 -m unittest discover -s tests -v
-python3 -m compileall src/conductor
-```
-
-The live probe and smoke scripts are intentionally opt-in and may spend
-provider/API usage:
-
-```bash
-RUN_LIVE=1 make probe
-RUN_LIVE=1 make e2e
-```
-
-Note: `probe/probe.py` is currently a manual-run placeholder — it prints setup
-guidance rather than driving a live provider. Live end-to-end validation is a
-manual step, not part of the automated suite.
-
-## Uninstall
-
-```bash
-cd /path/to/codex-conductor
-bash uninstall.sh                    # Codex
-bash uninstall.sh --provider claude  # Claude Code
-```
-
-On Windows (PowerShell): `.\uninstall.ps1` (add `--provider claude` for Claude
-Code).
-
-Uninstall removes only managed blocks and managed hook entries. Ledger state
-under the provider's `conductor/state/` directory is left in place; delete it
-manually if you want to reclaim the space.
+MIT

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from conductor.errors import StateError, StoreBusyError
-from conductor.migrations import SCHEMA_VERSION, apply_migrations
+from conductor.migrations import apply_migrations
 from conductor.schemas import (
     Decision,
     LifecycleEvent,
@@ -23,11 +23,15 @@ from conductor.schemas import (
     OperationName,
     Reservation,
     ReservationState,
+    RunContext,
 )
 
-
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_ACTIVE_STATES = (ReservationState.APPROVED.value, ReservationState.STARTED.value)
+_CONCURRENCY_STATES = (
+    ReservationState.APPROVED.value,
+    ReservationState.STARTED.value,
+)
+_RESERVED_STATES = (*_CONCURRENCY_STATES, ReservationState.STOPPED.value)
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,7 @@ class DecisionSpec:
     message: str
     selected_model: str | None = None
     savings_eligible: bool = False
+    reserve: bool = True
 
 
 class Store:
@@ -92,10 +97,19 @@ class Store:
         if busy_timeout_ms < 1 or busy_timeout_ms > 30_000:
             raise ValueError("busy_timeout_ms must be in 1..30000")
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        _assert_safe_store_path(self.path)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _assert_safe_store_path(self.path)
         self.busy_timeout_ms = busy_timeout_ms
         self._clock = clock
         self._initialize()
+        if os.name != "nt":
+            try:
+                os.chmod(self.path, 0o600)
+            except OSError as exc:
+                raise StateError(
+                    f"cannot secure conductor store permissions: {exc}"
+                ) from exc
 
     def _initialize(self) -> None:
         last_error: sqlite3.OperationalError | None = None
@@ -117,6 +131,7 @@ class Store:
         raise StoreBusyError(f"cannot initialize conductor store: {last_error}")
 
     def _connect(self) -> sqlite3.Connection:
+        _assert_safe_store_path(self.path)
         connection = sqlite3.connect(
             self.path,
             timeout=self.busy_timeout_ms / 1_000,
@@ -242,6 +257,25 @@ class Store:
             if updated != 1:
                 raise StateError(f"run lease does not exist: {run_id}")
 
+    def run_context(self, run_id: str) -> RunContext:
+        """Return the immutable, validated context captured at SessionStart."""
+
+        validate_identifier(run_id, "run_id")
+        with self._reader() as connection:
+            row = connection.execute(
+                "SELECT context_json FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+        if row is None:
+            raise StateError(f"run does not exist: {run_id}")
+        raw = row["context_json"]
+        if not isinstance(raw, str):
+            raise StateError(f"run has no validated context: {run_id}")
+        try:
+            value = json.loads(raw)
+            return RunContext.model_validate(value)
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            raise StateError(f"run context is invalid: {run_id}: {exc}") from exc
+
     def reserve(
         self,
         request: ReservationRequest,
@@ -349,7 +383,7 @@ class Store:
                     spec = evaluator(self._snapshot(connection, request.run_id))
 
             reservation_id: str | None = None
-            if spec.allowed:
+            if spec.allowed and spec.reserve:
                 reservation_id = _new_id("reservation")
                 connection.execute(
                     """
@@ -422,7 +456,7 @@ class Store:
             """
             SELECT COALESCE(SUM(estimated_usd), 0.0)
             FROM reservations
-            WHERE run_id = ? AND state IN ('approved', 'started')
+            WHERE run_id = ? AND state IN ('approved', 'started', 'stopped')
             """,
             (run_id,),
         ).fetchone()[0]
@@ -442,7 +476,17 @@ class Store:
             UPDATE reservations
             SET state = 'expired', updated_at = ?, recoverable = 0,
                 recovery_reason = NULL
-            WHERE state IN ('approved', 'started') AND expires_at <= ?
+            WHERE state = 'approved' AND expires_at <= ?
+            """,
+            (now, now),
+        )
+        connection.execute(
+            """
+            UPDATE reservations
+            SET recoverable = 1,
+                recovery_reason = 'started reservation exceeded TTL',
+                updated_at = ?
+            WHERE state = 'started' AND expires_at <= ? AND recoverable = 0
             """,
             (now, now),
         )
@@ -475,19 +519,95 @@ class Store:
             return int(connection.execute(sql, params).fetchone()[0])
 
     def reservation(self, key: str, *, run_id: str | None = None) -> Reservation:
-        clauses = ["(reservation_id = ? OR task_id = ? OR correlation_id = ?)"]
-        params: list[object] = [key, key, key]
+        clauses = [
+            "(reservations.reservation_id = ? OR reservations.task_id = ? "
+            "OR reservations.correlation_id = ? OR correlation_aliases.alias = ?)"
+        ]
+        params: list[object] = [key, key, key, key]
         if run_id is not None:
-            clauses.append("run_id = ?")
+            clauses.append("reservations.run_id = ?")
             params.append(run_id)
         with self._reader() as connection:
             row = connection.execute(
-                f"SELECT * FROM reservations WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT 1",
+                "SELECT reservations.* FROM reservations "
+                "LEFT JOIN correlation_aliases ON "
+                "correlation_aliases.reservation_id = reservations.reservation_id "
+                f"WHERE {' AND '.join(clauses)} "
+                "ORDER BY reservations.created_at DESC LIMIT 1",
                 params,
             ).fetchone()
         if row is None:
             raise StateError(f"reservation not found: {key}")
         return _reservation_from_row(row)
+
+    def link_correlation(
+        self,
+        run_id: str,
+        *,
+        source_correlation: str,
+        alias: str,
+        source_event_id: str,
+    ) -> Reservation:
+        """Link a PostToolUse child id to its exact pre-tool reservation."""
+
+        for value, name in (
+            (run_id, "run_id"),
+            (source_correlation, "source_correlation"),
+            (alias, "alias"),
+            (source_event_id, "source_event_id"),
+        ):
+            validate_identifier(value, name)
+        now = self._clock()
+        with self._transaction() as connection:
+            source = connection.execute(
+                """
+                SELECT reservations.* FROM reservations
+                LEFT JOIN correlation_aliases
+                  ON correlation_aliases.reservation_id = reservations.reservation_id
+                WHERE reservations.run_id = ? AND (
+                    reservations.reservation_id = ? OR reservations.task_id = ?
+                    OR reservations.correlation_id = ? OR correlation_aliases.alias = ?
+                )
+                ORDER BY reservations.created_at DESC LIMIT 1
+                """,
+                (
+                    run_id,
+                    source_correlation,
+                    source_correlation,
+                    source_correlation,
+                    source_correlation,
+                ),
+            ).fetchone()
+            if source is None:
+                raise StateError(f"source reservation not found: {source_correlation}")
+            existing_alias = connection.execute(
+                "SELECT reservation_id FROM correlation_aliases WHERE run_id = ? AND alias = ?",
+                (run_id, alias),
+            ).fetchone()
+            if existing_alias is not None:
+                if existing_alias["reservation_id"] != source["reservation_id"]:
+                    raise StateError(f"correlation alias already linked: {alias}")
+                return _reservation_from_row(source)
+            existing_event = connection.execute(
+                "SELECT alias, reservation_id FROM correlation_aliases WHERE run_id = ? AND source_event_id = ?",
+                (run_id, source_event_id),
+            ).fetchone()
+            if existing_event is not None:
+                if (
+                    existing_event["alias"] != alias
+                    or existing_event["reservation_id"] != source["reservation_id"]
+                ):
+                    raise StateError(f"source event already linked: {source_event_id}")
+                return _reservation_from_row(source)
+            connection.execute(
+                """
+                INSERT INTO correlation_aliases (
+                    run_id, alias, reservation_id, source_event_id, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (run_id, alias, source["reservation_id"], source_event_id, now),
+            )
+            return _reservation_from_row(source)
 
     def record_lifecycle(self, event: LifecycleEvent) -> Reservation:
         now = self._clock()
@@ -518,6 +638,17 @@ class Store:
                 ),
             ).rowcount
             if inserted == 0:
+                existing = connection.execute(
+                    "SELECT payload_json FROM lifecycle_events "
+                    "WHERE run_id = ? AND event_id = ?",
+                    (event.run_id, event.event_id),
+                ).fetchone()
+                if existing is None or _lifecycle_semantics(
+                    str(existing["payload_json"])
+                ) != _lifecycle_semantics(_json(event.model_dump(mode="json"))):
+                    raise StateError(
+                        f"conflicting lifecycle event id: {event.event_id}"
+                    )
                 return self._reservation_in_transaction(
                     connection,
                     event.run_id,
@@ -633,6 +764,36 @@ class Store:
                 ).fetchone()[0]
             )
 
+    def raw_usage_count(
+        self, *, run_id: str | None = None, source_event_id: str | None = None
+    ) -> int:
+        clauses: list[str] = []
+        params: list[object] = []
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        if source_event_id is not None:
+            clauses.append("source_event_id = ?")
+            params.append(source_event_id)
+        sql = "SELECT COUNT(*) FROM raw_usage"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        with self._reader() as connection:
+            return int(connection.execute(sql, params).fetchone()[0])
+
+    def total_cost_usd(self, *, run_id: str, estimated: bool | None = None) -> float:
+        clauses = ["run_id = ?"]
+        params: list[object] = [run_id]
+        if estimated is not None:
+            clauses.append("estimated = ?")
+            params.append(int(estimated))
+        with self._reader() as connection:
+            value = connection.execute(
+                f"SELECT COALESCE(SUM(usd), 0.0) FROM costs WHERE {' AND '.join(clauses)}",
+                params,
+            ).fetchone()[0]
+        return float(value)
+
     def gc_candidates(self, *, older_than: float) -> list[str]:
         now = self._clock()
         with self._reader() as connection:
@@ -648,47 +809,215 @@ class Store:
             ).fetchall()
         return [str(row["run_id"]) for row in rows]
 
-    def append_legacy_event(self, run_id: str, event: dict[str, Any]) -> None:
-        validate_identifier(run_id, "run_id")
-        now = self._clock()
-        record = {"v": SCHEMA_VERSION, "ts": now, **event}
-        with self._transaction() as connection:
-            connection.execute(
-                """
-                INSERT INTO runs (
-                    run_id, provider, generation, mode, context_json, created_at, heartbeat_at
-                ) VALUES (?, 'legacy', 0, 'observe', NULL, ?, ?)
-                ON CONFLICT(run_id) DO UPDATE SET heartbeat_at = excluded.heartbeat_at
-                """,
-                (run_id, now, now),
-            )
-            connection.execute(
-                "INSERT INTO legacy_events (run_id, event_json, created_at) VALUES (?, ?, ?)",
-                (run_id, _json(record), now),
-            )
-
-    def read_legacy_events(self, run_id: str) -> list[dict[str, Any]]:
-        with self._reader() as connection:
-            rows = connection.execute(
-                "SELECT event_json FROM legacy_events WHERE run_id = ? ORDER BY sequence",
-                (run_id,),
-            ).fetchall()
-        events: list[dict[str, Any]] = []
-        for row in rows:
-            try:
-                value = json.loads(row["event_json"])
-            except json.JSONDecodeError:
-                continue
-            if isinstance(value, dict):
-                events.append(value)
-        return events
-
     def latest_run_id(self) -> str | None:
         with self._reader() as connection:
             row = connection.execute(
                 "SELECT run_id FROM runs ORDER BY heartbeat_at DESC, run_id DESC LIMIT 1"
             ).fetchone()
         return None if row is None else str(row["run_id"])
+
+    def run_ids(self) -> list[str]:
+        with self._reader() as connection:
+            rows = connection.execute(
+                "SELECT run_id FROM runs ORDER BY heartbeat_at DESC, run_id DESC"
+            ).fetchall()
+        return [str(row["run_id"]) for row in rows]
+
+    def expire_stale(self) -> int:
+        now = self._clock()
+        with self._transaction() as connection:
+            before = connection.total_changes
+            self._expire_reservations(connection, now)
+            return connection.total_changes - before
+
+    def run_snapshot(self, run_id: str) -> dict[str, Any]:
+        validate_identifier(run_id, "run_id")
+        self.expire_stale()
+        now = self._clock()
+        with self._reader() as connection:
+            run = connection.execute(
+                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise StateError(f"run does not exist: {run_id}")
+            lease = connection.execute(
+                "SELECT owner_id, heartbeat_at, expires_at FROM leases WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            states = connection.execute(
+                """
+                SELECT COALESCE(tier, 'unknown') AS tier, state, COUNT(*) AS count,
+                       COALESCE(SUM(estimated_usd), 0.0) AS estimated_usd
+                FROM reservations WHERE run_id = ?
+                GROUP BY COALESCE(tier, 'unknown'), state
+                ORDER BY tier, state
+                """,
+                (run_id,),
+            ).fetchall()
+            decisions = connection.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(allowed), 0) AS allowed,
+                       COALESCE(SUM(CASE WHEN allowed = 0 THEN 1 ELSE 0 END), 0) AS denied,
+                       COALESCE(SUM(savings_eligible), 0) AS savings_eligible
+                FROM decisions WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+            costs = connection.execute(
+                """
+                SELECT COALESCE(SUM(usd), 0.0) AS total,
+                       COALESCE(SUM(CASE WHEN estimated = 0 THEN usd ELSE 0 END), 0.0) AS measured,
+                       COALESCE(SUM(CASE WHEN estimated = 1 THEN usd ELSE 0 END), 0.0) AS estimated
+                FROM costs WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+            recoverable = connection.execute(
+                "SELECT COUNT(*) FROM reservations WHERE run_id = ? AND recoverable = 1",
+                (run_id,),
+            ).fetchone()[0]
+        reserved = sum(
+            float(row["estimated_usd"])
+            for row in states
+            if row["state"] in _RESERVED_STATES
+        )
+        return {
+            "run_id": run_id,
+            "provider": str(run["provider"]),
+            "generation": int(run["generation"]),
+            "mode": str(run["mode"]),
+            "created_at": float(run["created_at"]),
+            "heartbeat_at": float(run["heartbeat_at"]),
+            "lease": None
+            if lease is None
+            else {
+                "owner_id": str(lease["owner_id"]),
+                "heartbeat_at": float(lease["heartbeat_at"]),
+                "expires_at": float(lease["expires_at"]),
+                "active": float(lease["expires_at"]) > now,
+            },
+            "reservations": [
+                {
+                    "tier": str(row["tier"]),
+                    "state": str(row["state"]),
+                    "count": int(row["count"]),
+                    "estimated_usd": float(row["estimated_usd"]),
+                }
+                for row in states
+            ],
+            "reserved_usd": reserved,
+            "decisions": {
+                "total": int(decisions["total"]),
+                "allowed": int(decisions["allowed"]),
+                "denied": int(decisions["denied"]),
+                "savings_eligible": int(decisions["savings_eligible"]),
+            },
+            "costs": {
+                "total_usd": float(costs["total"]),
+                "measured_usd": float(costs["measured"]),
+                "estimated_usd": float(costs["estimated"]),
+            },
+            "recoverable": int(recoverable),
+        }
+
+    def report_snapshot(self, run_id: str) -> dict[str, Any]:
+        validate_identifier(run_id, "run_id")
+        self.expire_stale()
+        with self._reader() as connection:
+            run = connection.execute(
+                "SELECT provider, mode FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise StateError(f"run does not exist: {run_id}")
+            rows = connection.execute(
+                """
+                SELECT COALESCE(reservations.tier, 'unknown') AS tier,
+                       COUNT(DISTINCT reservations.reservation_id) AS reservations,
+                       COUNT(DISTINCT CASE WHEN reservations.state IN ('stopped', 'costed')
+                             THEN reservations.reservation_id END) AS completed,
+                       COUNT(DISTINCT CASE WHEN reservations.state IN ('failed', 'cancelled')
+                             THEN reservations.reservation_id END) AS failed,
+                       COALESCE(SUM(CASE WHEN costs.estimated = 0 THEN costs.usd ELSE 0 END), 0.0) AS measured_usd,
+                       COALESCE(SUM(CASE WHEN costs.estimated = 1 THEN costs.usd ELSE 0 END), 0.0) AS estimated_usd,
+                       COALESCE(SUM(CASE WHEN decisions.savings_eligible = 1
+                             THEN 1 ELSE 0 END), 0) AS savings_eligible,
+                       COALESCE(SUM(CASE WHEN decisions.savings_eligible = 1
+                             THEN reservations.estimated_usd ELSE 0 END), 0.0) AS routed_estimate_usd
+                FROM reservations
+                LEFT JOIN costs ON costs.run_id = reservations.run_id
+                  AND costs.correlation_id = reservations.correlation_id
+                LEFT JOIN decisions ON decisions.reservation_id = reservations.reservation_id
+                WHERE reservations.run_id = ?
+                GROUP BY COALESCE(reservations.tier, 'unknown')
+                ORDER BY tier
+                """,
+                (run_id,),
+            ).fetchall()
+            usages = connection.execute(
+                "SELECT model, payload_json FROM raw_usage WHERE run_id = ? ORDER BY usage_id",
+                (run_id,),
+            ).fetchall()
+        return {
+            "run_id": run_id,
+            "provider": str(run["provider"]),
+            "mode": str(run["mode"]),
+            "tiers": [dict(row) for row in rows],
+            "usage": [
+                {"model": str(row["model"]), "payload": json.loads(row["payload_json"])}
+                for row in usages
+            ],
+        }
+
+    def recoverable_reservations(self, *, run_id: str) -> list[Reservation]:
+        validate_identifier(run_id, "run_id")
+        with self._reader() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM reservations
+                WHERE run_id = ? AND recoverable = 1
+                ORDER BY created_at, reservation_id
+                """,
+                (run_id,),
+            ).fetchall()
+        return [_reservation_from_row(row) for row in rows]
+
+    def resolve_recovery(self, key: str, *, run_id: str, outcome: str) -> Reservation:
+        if outcome not in {"cancelled", "failed", "expired"}:
+            raise ValueError("recovery outcome must be cancelled, failed, or expired")
+        reservation = self.reservation(key, run_id=run_id)
+        now = self._clock()
+        with self._transaction() as connection:
+            updated = connection.execute(
+                """
+                UPDATE reservations
+                SET state = ?, recoverable = 0, recovery_reason = NULL, updated_at = ?
+                WHERE reservation_id = ? AND recoverable = 1
+                """,
+                (outcome, now, reservation.reservation_id),
+            ).rowcount
+            if updated != 1:
+                raise StateError(f"reservation is not recoverable: {key}")
+        return self.reservation(reservation.reservation_id, run_id=run_id)
+
+    def delete_run(self, run_id: str) -> None:
+        validate_identifier(run_id, "run_id")
+        now = self._clock()
+        with self._transaction() as connection:
+            lease = connection.execute(
+                "SELECT expires_at FROM leases WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if lease is not None and float(lease["expires_at"]) > now:
+                raise StateError(f"cannot delete actively leased run: {run_id}")
+            deleted = connection.execute(
+                "DELETE FROM runs WHERE run_id = ?", (run_id,)
+            ).rowcount
+            if deleted != 1:
+                raise StateError(f"run does not exist: {run_id}")
+
+    def integrity_check(self) -> str:
+        with self._reader() as connection:
+            return str(connection.execute("PRAGMA integrity_check").fetchone()[0])
 
 
 def _decision_from_row(row: sqlite3.Row) -> Decision:
@@ -777,6 +1106,20 @@ def _json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def _lifecycle_semantics(payload_json: str) -> str:
+    try:
+        payload = json.loads(payload_json)
+    except json.JSONDecodeError as exc:
+        raise StateError("stored lifecycle event payload is invalid") from exc
+    if not isinstance(payload, dict):
+        raise StateError("stored lifecycle event payload is invalid")
+    payload.pop("occurred_at", None)
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        usage.pop("occurred_at", None)
+    return _json(payload)
+
+
 def validate_identifier(value: str, name: str) -> None:
     if not isinstance(value, str) or not _IDENTIFIER.fullmatch(value):
         raise ValueError(f"{name} is not a valid bounded identifier")
@@ -785,3 +1128,29 @@ def validate_identifier(value: str, name: str) -> None:
 def _is_locked(error: sqlite3.OperationalError) -> bool:
     message = str(error).lower()
     return "locked" in message or "busy" in message
+
+
+def _assert_safe_store_path(path: Path) -> None:
+    candidates = [path, path.with_name(path.name + "-wal")]
+    candidates.extend(
+        [path.with_name(path.name + "-shm"), path.with_name(path.name + "-journal")]
+    )
+    current = path.parent
+    while True:
+        candidates.append(current)
+        if current.parent == current:
+            break
+        current = current.parent
+    for candidate in candidates:
+        try:
+            metadata = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise StateError(f"cannot inspect conductor store path: {exc}") from exc
+        if candidate.is_symlink() or bool(
+            getattr(metadata, "st_file_attributes", 0) & 0x400
+        ):
+            raise StateError(
+                f"conductor store path is a symbolic link or reparse point: {candidate}"
+            )

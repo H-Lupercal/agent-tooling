@@ -4,8 +4,9 @@ import json
 from importlib.resources import files
 from pathlib import Path
 
-from conductor.schemas import CapabilityContract, OperatingMode
+import pytest
 
+from conductor.schemas import CapabilityContract, OperatingMode
 
 FIXTURES = Path(__file__).parent / "fixtures" / "contracts"
 
@@ -75,3 +76,66 @@ def test_contract_digest_drift_is_unsupported() -> None:
 
     assert result.mode == OperatingMode.UNSUPPORTED
     assert "digest drift" in result.reason
+
+
+@pytest.mark.parametrize(
+    ("value", "schema", "expected"),
+    [
+        ("x", {"type": "string", "minLength": 1, "maxLength": 2}, True),
+        ("", {"type": "string", "minLength": 1}, False),
+        ("xxx", {"type": "string", "maxLength": 2}, False),
+        (True, {"type": "boolean"}, True),
+        (1, {"type": "boolean"}, False),
+        (1, {"type": "integer"}, True),
+        (True, {"type": "integer"}, False),
+        (1.5, {"type": "number"}, True),
+        (False, {"type": "number"}, False),
+        ([1, 2], {"type": "array", "items": {"type": "integer"}}, True),
+        ([1, "x"], {"type": "array", "items": {"type": "integer"}}, False),
+        ("a", {"type": "string", "enum": ["a", "b"]}, True),
+        ("c", {"type": "string", "enum": ["a", "b"]}, False),
+        (
+            {"x": 1},
+            {
+                "type": "object",
+                "required": ["x"],
+                "properties": {"x": {"type": "integer"}},
+                "additionalProperties": False,
+            },
+            True,
+        ),
+        ({"y": 1}, {"type": "object", "required": ["x"], "properties": {}}, False),
+        (
+            {"x": 1},
+            {"type": "object", "properties": {}, "additionalProperties": False},
+            False,
+        ),
+        (None, {"type": "null"}, False),
+        (1, "not-a-schema", False),
+    ],
+)
+def test_contract_schema_matcher_is_closed_and_type_strict(
+    value: object, schema: object, expected: bool
+) -> None:
+    from conductor.capabilities import _matches_schema
+
+    assert _matches_schema(value, schema) is expected
+
+
+def test_contract_mode_downgrades_missing_hooks_identity_and_blocking() -> None:
+    from conductor.capabilities import contract_mode, load_contract
+
+    contract = load_contract("claude-current")
+    no_hooks = contract.model_copy(update={"hook_events": ()})
+    no_lifecycle = contract.model_copy(
+        update={
+            "correlation_fields": contract.correlation_fields.model_copy(
+                update={"lifecycle_id": ()}
+            )
+        }
+    )
+    observe = contract.model_copy(update={"can_block": False})
+
+    assert contract_mode(no_hooks) is OperatingMode.UNSUPPORTED
+    assert contract_mode(no_lifecycle) is OperatingMode.UNSUPPORTED
+    assert contract_mode(observe) is OperatingMode.OBSERVE
