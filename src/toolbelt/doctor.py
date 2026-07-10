@@ -45,9 +45,13 @@ def doctor_report(
         checks.append(DoctorCheck("DISTRIBUTION_CATALOG", False, "error", str(exc)))
     try:
         distribution["version"] = metadata.version("toolbelt-ai")
-        checks.append(DoctorCheck("DISTRIBUTION_METADATA", True, "error", "package metadata loaded"))
+        checks.append(
+            DoctorCheck("DISTRIBUTION_METADATA", True, "error", "package metadata loaded")
+        )
     except metadata.PackageNotFoundError:
-        checks.append(DoctorCheck("DISTRIBUTION_METADATA", False, "error", "package metadata unavailable"))
+        checks.append(
+            DoctorCheck("DISTRIBUTION_METADATA", False, "error", "package metadata unavailable")
+        )
 
     project: dict[str, Any] | None = None
     if root is not None:
@@ -64,12 +68,18 @@ def doctor_report(
             }
             checks.append(DoctorCheck("PROJECT_SCAN", True, "error", "repository scan completed"))
             if os.access(selected_root, os.W_OK):
-                checks.append(DoctorCheck("PROJECT_WRITABLE", True, "warning", "repository is writable"))
+                checks.append(
+                    DoctorCheck("PROJECT_WRITABLE", True, "warning", "repository is writable")
+                )
             else:
-                checks.append(DoctorCheck("PROJECT_WRITABLE", False, "warning", "repository is read-only"))
+                checks.append(
+                    DoctorCheck("PROJECT_WRITABLE", False, "warning", "repository is read-only")
+                )
             declaration = load_declaration(selected_root)
             if declaration is None:
-                checks.append(DoctorCheck("DECLARATION", False, "warning", "no v2 declaration exists"))
+                checks.append(
+                    DoctorCheck("DECLARATION", False, "warning", "no v2 declaration exists")
+                )
             else:
                 valid_identity = declaration.repository_identity == identity
                 valid_catalog = catalog is not None and declaration.catalog_digest == catalog.digest
@@ -90,13 +100,16 @@ def doctor_report(
                 checks.append(
                     DoctorCheck(
                         "STATE_SCHEMA",
-                        state["schema_version"] == STATE_SCHEMA_VERSION and state["integrity"] == "ok",
+                        state["schema_version"] == STATE_SCHEMA_VERSION
+                        and state["integrity"] == "ok",
                         "error",
                         "state database schema and integrity are valid",
                     )
                 )
             else:
-                checks.append(DoctorCheck("STATE_SCHEMA", True, "warning", "state database not initialized"))
+                checks.append(
+                    DoctorCheck("STATE_SCHEMA", True, "warning", "state database not initialized")
+                )
             if capabilities is not None:
                 known = capabilities.status.value == "known"
                 checks.append(
@@ -132,9 +145,7 @@ def status_report(root: str | Path) -> dict[str, Any]:
     state_path = resolve_owned_path(selected_root, ".toolbelt/state.sqlite3")
     return {
         "repository_identity": repository_identity(selected_root),
-        "declaration": None
-        if declaration is None
-        else declaration.model_dump(mode="json"),
+        "declaration": None if declaration is None else declaration.model_dump(mode="json"),
         "state": inspect_state(state_path),
     }
 

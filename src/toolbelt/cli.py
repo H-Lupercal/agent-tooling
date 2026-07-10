@@ -3,19 +3,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import traceback
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Never
 
 from pydantic import ValidationError as PydanticValidationError
 
 from toolbelt import __version__
 from toolbelt.adapters.base import run_inventory_command
-from toolbelt.adapters.claude import ClaudeAdapter
 from toolbelt.adapters.codex import CodexAdapter
-from toolbelt.capabilities import combine_capabilities
 from toolbelt.catalog import CatalogV2, load_catalog_v2
 from toolbelt.doctor import doctor_report, status_report
 from toolbelt.errors import (
@@ -54,7 +54,7 @@ class CommandOutcome:
 
 
 class _Parser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> Never:
         raise UsageError(message)
 
 
@@ -119,7 +119,9 @@ def build_parser() -> argparse.ArgumentParser:
     _approval_arguments(remove, mutation=True)
     _output_arguments(remove)
 
-    reconcile = commands.add_parser("reconcile", help="report catalog, declaration, and inventory drift")
+    reconcile = commands.add_parser(
+        "reconcile", help="report catalog, declaration, and inventory drift"
+    )
     _project_arguments(reconcile)
     _capability_arguments(reconcile)
     _output_arguments(reconcile)
@@ -170,7 +172,9 @@ def main(argv: list[str] | None = None) -> int:
     debug = "--debug" in arguments
     try:
         parsed = build_parser().parse_args(arguments)
-        command = parsed.command if parsed.command != "catalog" else f"catalog {parsed.catalog_command}"
+        command = (
+            parsed.command if parsed.command != "catalog" else f"catalog {parsed.catalog_command}"
+        )
         outcome = _dispatch(parsed)
         if parsed.json:
             emit_json(response(command, outcome.data))
@@ -214,10 +218,13 @@ def _scan(args: argparse.Namespace) -> CommandOutcome:
     root = _root(args.path)
     result = scan_repository(root)
     data = _scan_data(result)
-    human = "\n".join(
-        f"{item.strength.value:8} {item.type}:{item.key} ({item.source})"
-        for item in result.evidence
-    ) or "No repository evidence found."
+    human = (
+        "\n".join(
+            f"{item.strength.value:8} {item.type}:{item.key} ({item.source})"
+            for item in result.evidence
+        )
+        or "No repository evidence found."
+    )
     return CommandOutcome(data, human)
 
 
@@ -225,17 +232,20 @@ def _discover(args: argparse.Namespace) -> CommandOutcome:
     root = _root(args.path)
     catalog = load_catalog_v2()
     scan = scan_repository(root)
-    capabilities = _load_capabilities(args.capabilities)
+    capabilities = _load_capabilities(args.capabilities, root=root, catalog=catalog)
     recommendations = recommend(catalog, scan.evidence, capabilities)
     data = {
         **_scan_data(scan),
         "capabilities": capabilities.model_dump(mode="json"),
         "recommendations": [_recommendation_data(item) for item in recommendations],
     }
-    human = "\n".join(
-        f"{'ACTION' if item.actionable else 'ADVISORY':8} {item.tool_id}: {item.why}"
-        for item in recommendations
-    ) or "No recommendations."
+    human = (
+        "\n".join(
+            f"{'ACTION' if item.actionable else 'ADVISORY':8} {item.tool_id}: {item.why}"
+            for item in recommendations
+        )
+        or "No recommendations."
+    )
     return CommandOutcome(data, human)
 
 
@@ -243,7 +253,7 @@ def _plan(args: argparse.Namespace) -> CommandOutcome:
     root = _root(args.path)
     catalog = load_catalog_v2()
     scan = scan_repository(root)
-    capabilities = _load_capabilities(args.capabilities)
+    capabilities = _load_capabilities(args.capabilities, root=root, catalog=catalog)
     plan = build_plan_v2(
         root,
         scan.evidence,
@@ -268,7 +278,10 @@ def _plan(args: argparse.Namespace) -> CommandOutcome:
         "output": output,
         "warnings": [asdict(warning) for warning in scan.warnings],
     }
-    return CommandOutcome(data, f"Plan {plan.plan_id}: {len(plan.actions)} action(s)" + (f" -> {output}" if output else ""))
+    return CommandOutcome(
+        data,
+        f"Plan {plan.plan_id}: {len(plan.actions)} action(s)" + (f" -> {output}" if output else ""),
+    )
 
 
 def _apply(args: argparse.Namespace) -> CommandOutcome:
@@ -276,7 +289,7 @@ def _apply(args: argparse.Namespace) -> CommandOutcome:
         raise DeclinedError("apply requires --yes unless --dry-run is used")
     root = _root(args.path)
     catalog = load_catalog_v2()
-    capabilities = _load_capabilities(args.capabilities)
+    capabilities = _load_capabilities(args.capabilities, root=root, catalog=catalog)
     plan = read_plan_v2(args.plan)
     result = Executor().apply(
         plan,
@@ -307,7 +320,11 @@ def _doctor(args: argparse.Namespace) -> CommandOutcome:
     root = None
     if args.path is not None:
         root = _root(args.path)
-        capabilities = _load_capabilities(args.capabilities)
+        capabilities = _load_capabilities(
+            args.capabilities,
+            root=root,
+            catalog=load_catalog_v2(),
+        )
     report = doctor_report(root=root, capabilities=capabilities, strict=args.strict)
     human = "\n".join(
         f"{'PASS' if check['ok'] else check['severity'].upper()}: {check['code']} - {check['message']}"
@@ -320,9 +337,11 @@ def _verify(args: argparse.Namespace) -> CommandOutcome:
     root = _root(args.path)
     declaration = _required_declaration(root)
     catalog = load_catalog_v2()
-    capabilities = _load_capabilities(args.capabilities)
+    capabilities = _load_capabilities(args.capabilities, root=root, catalog=catalog)
     catalog_by_id = {tool.id: tool for tool in catalog}
-    selected = [tool for tool in declaration.tools if args.tool is None or tool.tool_id == args.tool]
+    selected = [
+        tool for tool in declaration.tools if args.tool is None or tool.tool_id == args.tool
+    ]
     if args.tool and not selected:
         raise ValidationError(f"tool is not declared: {args.tool}")
     actions = [
@@ -349,10 +368,12 @@ def _adopt(args: argparse.Namespace) -> CommandOutcome:
     _require_yes(args)
     root = _root(args.path)
     catalog = load_catalog_v2()
-    capabilities = _load_capabilities(args.capabilities)
+    capabilities = _load_capabilities(args.capabilities, root=root, catalog=catalog)
     tool = _catalog_tool(catalog, args.tool)
     live_names = {tool.id, *(() if tool.live_name is None else (tool.live_name,))}
-    if capabilities.status.value != "known" or not set(capabilities.installed).intersection(live_names):
+    if capabilities.status.value != "known" or not set(capabilities.installed).intersection(
+        live_names
+    ):
         raise ValidationError("adoption requires known inventory proving the tool is installed")
     if set(capabilities.managed).intersection(live_names):
         raise ValidationError("tool is already managed")
@@ -381,7 +402,7 @@ def _remove(args: argparse.Namespace) -> CommandOutcome:
     if args.tool not in {tool.tool_id for tool in declaration.tools}:
         raise ValidationError(f"tool is not declared: {args.tool}")
     catalog = load_catalog_v2()
-    capabilities = _load_capabilities(args.capabilities)
+    capabilities = _load_capabilities(args.capabilities, root=root, catalog=catalog)
     tool = _catalog_tool(catalog, args.tool)
     plan = build_explicit_plan_v2(
         root,
@@ -405,7 +426,7 @@ def _reconcile(args: argparse.Namespace) -> CommandOutcome:
     root = _root(args.path)
     declaration = load_declaration(root)
     catalog = load_catalog_v2()
-    capabilities = _load_capabilities(args.capabilities)
+    capabilities = _load_capabilities(args.capabilities, root=root, catalog=catalog)
     catalog_by_id = {tool.id: tool for tool in catalog}
     drift: list[dict[str, str]] = []
     for declared in () if declaration is None else declaration.tools:
@@ -417,14 +438,20 @@ def _reconcile(args: argparse.Namespace) -> CommandOutcome:
         live_names = {declared.tool_id}
         if current is not None and current.live_name is not None:
             live_names.add(current.live_name)
-        if capabilities.status.value == "known" and not set(capabilities.installed).intersection(live_names):
+        if capabilities.status.value == "known" and not set(capabilities.installed).intersection(
+            live_names
+        ):
             drift.append({"tool_id": declared.tool_id, "kind": "missing_live_tool"})
     data = {
         "drift": drift,
         "declaration_present": declaration is not None,
         "capability_status": capabilities.status.value,
     }
-    human = "No drift detected." if not drift else "\n".join(f"{item['tool_id']}: {item['kind']}" for item in drift)
+    human = (
+        "No drift detected."
+        if not drift
+        else "\n".join(f"{item['tool_id']}: {item['kind']}" for item in drift)
+    )
     return CommandOutcome(data, human, exit_code=1 if drift else 0)
 
 
@@ -442,7 +469,9 @@ def _catalog(args: argparse.Namespace) -> CommandOutcome:
         "tool_count": len(catalog),
         "tools": [tool.id for tool in catalog],
     }
-    return CommandOutcome(data, f"Valid v2 catalog: {len(catalog)} tool(s), digest {catalog.digest}")
+    return CommandOutcome(
+        data, f"Valid v2 catalog: {len(catalog)} tool(s), digest {catalog.digest}"
+    )
 
 
 def _migrate(args: argparse.Namespace) -> CommandOutcome:
@@ -490,11 +519,22 @@ def _execution_outcome(result: ExecutionResult) -> CommandOutcome:
         "error": result.error,
         "commands": [command.model_dump(mode="json") for command in result.commands],
     }
-    exit_code = 0 if result.state.value == "succeeded" else (7 if result.state.value == "rollback_failed" else 6)
-    return CommandOutcome(data, f"Transaction {result.transaction_id}: {result.state.value}", exit_code)
+    exit_code = (
+        0
+        if result.state.value == "succeeded"
+        else (7 if result.state.value == "rollback_failed" else 6)
+    )
+    return CommandOutcome(
+        data, f"Transaction {result.transaction_id}: {result.state.value}", exit_code
+    )
 
 
-def _load_capabilities(path: str | None) -> CapabilitySnapshot:
+def _load_capabilities(
+    path: str | None,
+    *,
+    root: Path | None = None,
+    catalog: CatalogV2 | None = None,
+) -> CapabilitySnapshot:
     selected = path or os.environ.get("TOOLBELT_CAPABILITIES")
     if selected:
         source = Path(selected)
@@ -509,11 +549,31 @@ def _load_capabilities(path: str | None) -> CapabilitySnapshot:
             raise ValidationError(f"capability snapshot not found: {source}") from exc
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValidationError(f"invalid capability snapshot: {exc}") from exc
-    return combine_capabilities(
-        (
-            CodexAdapter().inventory(runner=run_inventory_command),
-            ClaudeAdapter().inventory(runner=run_inventory_command),
-        )
+    snapshot = CodexAdapter().inventory(runner=run_inventory_command)
+    if snapshot.status.value != "known" or root is None or catalog is None:
+        return snapshot
+    installed = set(snapshot.installed)
+    for tool in catalog:
+        live_name = tool.live_name or tool.id
+        if shutil.which(live_name):
+            installed.add(live_name)
+    managed: set[str] = set()
+    declaration = load_declaration(root)
+    if declaration is not None:
+        catalog_by_id = {tool.id: tool for tool in catalog}
+        for declared in declaration.tools:
+            live_name = (
+                catalog_by_id[declared.tool_id].live_name
+                if declared.tool_id in catalog_by_id
+                else None
+            )
+            managed.add(live_name or declared.tool_id)
+    installed.update(managed)
+    return snapshot.model_copy(
+        update={
+            "installed": tuple(sorted(installed)),
+            "managed": tuple(sorted(managed)),
+        }
     )
 
 

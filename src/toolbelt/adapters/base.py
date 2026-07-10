@@ -95,9 +95,7 @@ class JsonInventoryAdapter:
         if execution.truncated:
             return self._unknown("inventory output exceeded the configured bound")
         if execution.returncode != 0:
-            return self._unknown(
-                f"inventory command failed with exit code {execution.returncode}"
-            )
+            return self._unknown(f"inventory command failed with exit code {execution.returncode}")
         return self.parse_output(
             execution.stdout,
             max_output_bytes=self.command.max_output_bytes,

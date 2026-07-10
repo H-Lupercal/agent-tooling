@@ -9,8 +9,13 @@ from pathlib import Path
 import pytest
 
 
-def _run(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    root: Path,
+    *arguments: str,
+    extra_environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
+    environment.update(extra_environment or {})
     environment["PYTHONUTF8"] = "1"
     return subprocess.run(
         [sys.executable, "-m", "toolbelt", *arguments],
@@ -39,9 +44,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
 
 
 @pytest.mark.parametrize("command", ["scan", "discover", "status", "doctor"])
-def test_read_only_commands_leave_tree_byte_identical(
-    tmp_path: Path, command: str
-) -> None:
+def test_read_only_commands_leave_tree_byte_identical(tmp_path: Path, command: str) -> None:
     root = _repo(tmp_path)
     before = _snapshot(root)
     arguments = [command, "--json"]
@@ -134,3 +137,119 @@ def test_declined_mutation_has_stable_nonzero_error(tmp_path: Path) -> None:
     assert payload["ok"] is False
     assert payload["error"]["code"]
     assert "Traceback" not in result.stderr
+
+
+def test_adopt_verify_reconcile_and_remove_lifecycle(tmp_path: Path) -> None:
+    from tests.test_executor_v2 import _fixture
+
+    _, catalog, _, state, _ = _fixture(tmp_path)
+    state.write_text("installed", encoding="utf-8")
+    capabilities = tmp_path / "capabilities.json"
+    capabilities.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "provider": "combined",
+                "provider_version": None,
+                "status": "known",
+                "native": [],
+                "installed": ["fixture"],
+                "managed": [],
+                "errors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    environment = {"TOOLBELT_CATALOG": catalog.source}
+
+    adopted = _run(
+        tmp_path,
+        "adopt",
+        "fixture",
+        "--path",
+        str(tmp_path),
+        "--capabilities",
+        str(capabilities),
+        "--yes",
+        "--json",
+        extra_environment=environment,
+    )
+    assert adopted.returncode == 0, adopted.stderr
+    assert json.loads(adopted.stdout)["data"]["state"] == "succeeded"
+
+    for arguments in (
+        ("status", "--path", str(tmp_path), "--json"),
+        (
+            "verify",
+            "--path",
+            str(tmp_path),
+            "--capabilities",
+            str(capabilities),
+            "--json",
+        ),
+        (
+            "reconcile",
+            "--path",
+            str(tmp_path),
+            "--capabilities",
+            str(capabilities),
+            "--json",
+        ),
+        ("catalog", "validate", catalog.source, "--json"),
+    ):
+        result = _run(tmp_path, *arguments, extra_environment=environment)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["ok"] is True
+
+    removed = _run(
+        tmp_path,
+        "remove",
+        "fixture",
+        "--path",
+        str(tmp_path),
+        "--capabilities",
+        str(capabilities),
+        "--yes",
+        "--json",
+        extra_environment=environment,
+    )
+    assert removed.returncode == 0, removed.stderr
+    assert not state.exists()
+    status = json.loads(
+        _run(
+            tmp_path,
+            "status",
+            "--path",
+            str(tmp_path),
+            "--json",
+            extra_environment=environment,
+        ).stdout
+    )
+    assert status["data"]["declaration"]["tools"] == []
+
+
+def test_recover_rolls_back_preflight_only_transaction(tmp_path: Path) -> None:
+    from toolbelt.state import StateStore
+
+    control = tmp_path / ".toolbelt"
+    control.mkdir()
+    store = StateStore(control / "state.sqlite3")
+    transaction_id = store.begin_transaction(
+        plan_id="a" * 64,
+        repository_identity="b" * 64,
+    )
+    store.set_transaction_state(transaction_id, "preflight")
+
+    result = _run(
+        tmp_path,
+        "recover",
+        transaction_id,
+        "--path",
+        str(tmp_path),
+        "--yes",
+        "--json",
+    )
+
+    assert result.returncode != 0 or json.loads(result.stdout)["data"]["state"] == "rolled_back"
+    payload = json.loads(result.stdout)
+    assert payload["data"]["state"] == "rolled_back"

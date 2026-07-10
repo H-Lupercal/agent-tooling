@@ -7,6 +7,11 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
+from toolbelt.errors import ValidationError
+from toolbelt.migration import migrate_v1_candidate
+
 
 def test_migrate_v1_writes_disabled_candidate_only(tmp_path: Path) -> None:
     control = tmp_path / ".toolbelt"
@@ -53,3 +58,36 @@ def test_migrate_v1_writes_disabled_candidate_only(tmp_path: Path) -> None:
     assert candidate["source_schema_version"] == 1
     assert candidate["candidate"][0]["tool_id"] == "ruff"
     assert not (control / "state.sqlite3").exists()
+
+
+def test_migration_rejects_missing_invalid_and_wrong_schema_sources(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="not found"):
+        migrate_v1_candidate(tmp_path, "candidate.toml")
+
+    control = tmp_path / ".toolbelt"
+    control.mkdir()
+    source = control / "manifest.json"
+    source.write_text("not json", encoding="utf-8")
+    with pytest.raises(ValidationError, match="invalid v1"):
+        migrate_v1_candidate(tmp_path, "candidate.toml")
+
+    source.write_text('{"schema_version": 2}', encoding="utf-8")
+    with pytest.raises(ValidationError, match="schema_version 1"):
+        migrate_v1_candidate(tmp_path, "candidate.toml")
+
+
+def test_migration_rejects_bad_tool_shape_and_output_escape(tmp_path: Path) -> None:
+    control = tmp_path / ".toolbelt"
+    control.mkdir()
+    source = control / "manifest.json"
+    source.write_text('{"schema_version": 1, "tools": []}', encoding="utf-8")
+    with pytest.raises(ValidationError, match="tools must be an object"):
+        migrate_v1_candidate(tmp_path, "candidate.toml")
+
+    source.write_text('{"schema_version": 1, "tools": {"ruff": "bad"}}', encoding="utf-8")
+    with pytest.raises(ValidationError, match="named objects"):
+        migrate_v1_candidate(tmp_path, "candidate.toml")
+
+    source.write_text('{"schema_version": 1, "tools": {}}', encoding="utf-8")
+    with pytest.raises(ValidationError, match="inside the repository"):
+        migrate_v1_candidate(tmp_path, tmp_path.parent / "outside.toml")

@@ -1,12 +1,6 @@
-# Proposed catalog entries (staging)
+# Proposed catalog entries
 
-Agent-drafted catalog entries land here, one `<id>.toml` per tool, produced from
-`toolbelt discover` briefs. Files here are NOT loaded by Toolbelt; `load_catalog`
-reads only `catalog/catalog.toml`.
-
-Workflow:
-1. `toolbelt discover` prints a gap brief and entry template.
-2. The agent writes a draft to `catalog/proposed/<id>.toml` (`approved = false`).
-3. `toolbelt validate` must pass (schema plus safety lint).
-4. A human reviews the file and merges it into `catalog/catalog.toml` with
-   `approved = false`, then flips `approved = true` once the tool is vetted.
+This directory is optional review staging. Files here are never loaded
+automatically. Each proposal must be a complete strict v2 catalog document and
+must pass `toolbelt catalog validate catalog/proposed/FILE.toml` before a human
+reviews and merges its tool entry into `src/toolbelt/data/catalog.toml`.

@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from toolbelt.evidence import scan_v2
 from toolbelt.ignore import IgnoreRules
 from toolbelt.scanner import ScanLimits, scan_repository
 
@@ -131,7 +130,7 @@ def test_malformed_manifests_produce_bounded_relative_warnings(tmp_path: Path):
     assert all(not warning.source.startswith("/") for warning in result.warnings)
 
 
-def test_scan_result_is_sorted_immutable_and_v1_bridge_is_pure(tmp_path: Path):
+def test_scan_result_is_sorted_immutable_and_repeatable(tmp_path: Path):
     repo = tmp_path / "repo"
     _write(repo / "z.py", "")
     _write(repo / "Dockerfile", "FROM scratch\n")
@@ -140,7 +139,6 @@ def test_scan_result_is_sorted_immutable_and_v1_bridge_is_pure(tmp_path: Path):
     result = scan_repository(repo)
 
     assert result == scan_repository(repo)
-    assert result == scan_v2(repo)
     assert isinstance(result.evidence, tuple)
     assert result.evidence == tuple(
         sorted(
@@ -190,9 +188,7 @@ def test_scan_limits_reject_negative_bounds(field: str):
         ScanLimits(**values)
 
 
-def test_100k_entry_scan_respects_limits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_100k_entry_scan_respects_limits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     consumed = 0

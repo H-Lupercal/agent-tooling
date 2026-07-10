@@ -1,10 +1,14 @@
-{
-  "schema_version": 1,
-  "provider": "codex",
-  "provider_version": "0.42.0",
-  "native": ["filesystem", "git"],
-  "tools": [
-    {"id": "mcp-playwright", "managed": true},
-    {"id": "ruff", "managed": false}
-  ]
-}
+[
+  {
+    "name": "mcp-playwright",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {"type": "stdio", "command": "npx", "args": ["playwright"]}
+  },
+  {
+    "name": "disabled-server",
+    "enabled": false,
+    "disabled_reason": "operator disabled",
+    "transport": {"type": "stdio", "command": "disabled"}
+  }
+]

@@ -1,30 +1,35 @@
-.PHONY: build check e2e format-check lint probe test typecheck
+.PHONY: build check distribution e2e format format-check lint release-check security test typecheck
 
-PYTHON ?= python
+PYTHON ?= python3
 
-test:
-	$(PYTHON) -m pytest
-
-lint:
-	$(PYTHON) -m ruff check .
+format:
+	$(PYTHON) -m ruff format src tests
 
 format-check:
-	$(PYTHON) -m ruff format --check .
+	$(PYTHON) -m ruff format --check src tests
+
+lint:
+	$(PYTHON) -m ruff check src tests
 
 typecheck:
 	$(PYTHON) -m pyright
 
+test:
+	$(PYTHON) -m pytest -m "not distribution" --cov=src/toolbelt --cov-branch --cov-report=term-missing --cov-fail-under=85
+
+distribution:
+	$(PYTHON) -m pytest -m distribution -q
+
 build:
 	$(PYTHON) -m build
+	$(PYTHON) -m twine check dist/*
+
+security:
+	$(PYTHON) -m pip_audit
 
 check: format-check lint typecheck test
 
-probe:
-	scripts/probe_cli_output.sh
+release-check: check build distribution security
 
 e2e:
-	@if [ "$$RUN_LIVE" = "1" ]; then \
-		tests/e2e_smoke.sh; \
-	else \
-		echo "set RUN_LIVE=1 to run live e2e"; \
-	fi
+	tests/e2e_smoke.sh

@@ -7,7 +7,6 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from toolbelt.errors import ValidationError
 
-
 _WINDOWS_DEVICES = frozenset(
     {
         "CON",

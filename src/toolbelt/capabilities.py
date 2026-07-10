@@ -31,20 +31,12 @@ def combine_capabilities(
         provider=Provider.COMBINED,
         status=(
             CapabilityStatus.UNKNOWN
-            if any(
-                snapshot.status is CapabilityStatus.UNKNOWN for snapshot in collected
-            )
+            if any(snapshot.status is CapabilityStatus.UNKNOWN for snapshot in collected)
             else CapabilityStatus.KNOWN
         ),
-        native=tuple(
-            sorted({item for snapshot in collected for item in snapshot.native})
-        ),
-        installed=tuple(
-            sorted({item for snapshot in collected for item in snapshot.installed})
-        ),
-        managed=tuple(
-            sorted({item for snapshot in collected for item in snapshot.managed})
-        ),
+        native=tuple(sorted({item for snapshot in collected for item in snapshot.native})),
+        installed=tuple(sorted({item for snapshot in collected for item in snapshot.installed})),
+        managed=tuple(sorted({item for snapshot in collected for item in snapshot.managed})),
         errors=errors,
     )
 
@@ -54,9 +46,7 @@ def inventory_capabilities(
     *,
     runner: InventoryRunner,
 ) -> CapabilitySnapshot:
-    return combine_capabilities(
-        adapter.inventory(runner=runner) for adapter in adapters
-    )
+    return combine_capabilities(adapter.inventory(runner=runner) for adapter in adapters)
 
 
 __all__ = ["combine_capabilities", "inventory_capabilities"]

@@ -17,7 +17,6 @@ from pydantic import (
     model_validator,
 )
 
-
 SCHEMA_VERSION = 2
 _MAX_PATH_LENGTH = 1024
 _SHELL_EXECUTABLES = frozenset(
@@ -121,14 +120,21 @@ Identifier = Annotated[
         pattern=r"^[a-z0-9][a-z0-9._-]*$",
     ),
 ]
+CapabilityName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+    ),
+]
 NonEmptyText = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)
 ]
 Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 EnvironmentName = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{0,127}$")]
-VersionText = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)
-]
+VersionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128)]
 Argument = Annotated[str, StringConstraints(min_length=1, max_length=4096)]
 MatchKey = Annotated[
     str,
@@ -208,12 +214,10 @@ class CapabilitySnapshot(SchemaV2Model):
     provider: Provider
     provider_version: Annotated[str, StringConstraints(max_length=128)] | None = None
     status: CapabilityStatus
-    native: tuple[Identifier, ...] = ()
-    installed: tuple[Identifier, ...] = ()
-    managed: tuple[Identifier, ...] = ()
-    errors: tuple[
-        Annotated[str, StringConstraints(min_length=1, max_length=2048)], ...
-    ] = ()
+    native: tuple[CapabilityName, ...] = ()
+    installed: tuple[CapabilityName, ...] = ()
+    managed: tuple[CapabilityName, ...] = ()
+    errors: tuple[Annotated[str, StringConstraints(min_length=1, max_length=2048)], ...] = ()
 
     @model_validator(mode="after")
     def _capabilities_are_consistent(self) -> Self:
@@ -298,9 +302,7 @@ class CatalogToolV2(SchemaV2Model):
             "suppressed_by_capabilities",
         ):
             _unique(getattr(self, field_name), field_name)
-        if Permission.NONE in self.permissions and self.permissions != (
-            Permission.NONE,
-        ):
+        if Permission.NONE in self.permissions and self.permissions != (Permission.NONE,):
             raise ValueError("permission 'none' must be declared alone")
         if set(self.strong_evidence) & set(self.weak_evidence):
             raise ValueError("evidence cannot be both strong and weak")
@@ -334,9 +336,7 @@ class ActionV2(StrictFrozenModel):
             ActionOperation.REPLACE,
         }:
             if not self.steps or not self.verify or not self.rollback:
-                raise ValueError(
-                    "mutating actions require steps, verification, and rollback"
-                )
+                raise ValueError("mutating actions require steps, verification, and rollback")
         return self
 
 
@@ -344,9 +344,7 @@ class RepositoryBinding(StrictFrozenModel):
     root: str = "."
     identity: Digest
     content_digest: Digest
-    git_head: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = (
-        None
-    )
+    git_head: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
     dirty_digest: Digest | None = None
 
     @field_validator("root", mode="before")

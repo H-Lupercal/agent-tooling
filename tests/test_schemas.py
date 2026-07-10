@@ -4,7 +4,8 @@ import math
 from pathlib import PurePosixPath
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from toolbelt.errors import (
@@ -159,9 +160,7 @@ def test_artifact_paths_reject_escapes(value: str):
         CatalogToolV2.model_validate(payload)
 
 
-@pytest.mark.parametrize(
-    "argv", [[], [""], ["sh", "-c", "echo ok"], ["cmd.exe", "/c", "echo ok"]]
-)
+@pytest.mark.parametrize("argv", [[], [""], ["sh", "-c", "echo ok"], ["cmd.exe", "/c", "echo ok"]])
 def test_action_steps_require_non_shell_argv(argv: list[str]):
     with pytest.raises(ValidationError):
         ActionStepV2.model_validate({"argv": argv})
@@ -273,9 +272,7 @@ def test_unknown_capabilities_fail_closed_and_managed_tools_are_installed():
             "errors": [],
         }
     )
-    assert (
-        CapabilitySnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
-    )
+    assert CapabilitySnapshot.model_validate_json(snapshot.model_dump_json()) == snapshot
 
 
 def test_declaration_rejects_duplicate_tool_ids():

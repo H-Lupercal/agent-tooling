@@ -49,9 +49,7 @@ def repo_evidence() -> list[EvidenceV2]:
 
 
 def test_existing_unmanaged_tool_is_never_reinstalled():
-    recs = recommend(
-        load_catalog_v2(), python_evidence(), capabilities(existing={"ruff"})
-    )
+    recs = recommend(load_catalog_v2(), python_evidence(), capabilities(existing={"ruff"}))
     ruff = next(item for item in recs if item.tool_id == "ruff")
 
     assert ruff.allowed_operations == ("adopt", "leave_unmanaged", "replace")
@@ -120,9 +118,7 @@ def test_user_scope_and_network_require_independent_flags():
     signal = [evidence("config", "pyright")]
 
     neither = next(
-        item
-        for item in recommend(catalog, signal, capabilities())
-        if item.tool_id == "pyright"
+        item for item in recommend(catalog, signal, capabilities()) if item.tool_id == "pyright"
     )
     network_only = next(
         item

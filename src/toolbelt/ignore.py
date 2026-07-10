@@ -7,7 +7,6 @@ from pathlib import Path, PurePosixPath
 from pathspec.gitignore import GitIgnoreSpec
 from pathspec.patterns.gitwildmatch import GitWildMatchPatternError
 
-
 _MAX_IGNORE_FILE_BYTES = 256 * 1024
 _EXCLUDED_DIRECTORIES = frozenset(
     {
@@ -78,9 +77,7 @@ class IgnoreRules:
 
     @classmethod
     def from_root(cls, root: Path, *, include_fixtures: bool = False) -> IgnoreRules:
-        return cls(include_fixtures=include_fixtures).with_directory(
-            root, PurePosixPath(".")
-        )
+        return cls(include_fixtures=include_fixtures).with_directory(root, PurePosixPath("."))
 
     def with_directory(
         self,
@@ -108,8 +105,7 @@ class IgnoreRules:
         if not self.include_fixtures and parts & _FIXTURE_DIRECTORIES:
             return True
         if not is_directory and any(
-            fnmatch.fnmatch(relative_path.name, pattern)
-            for pattern in _GENERATED_FILE_PATTERNS
+            fnmatch.fnmatch(relative_path.name, pattern) for pattern in _GENERATED_FILE_PATTERNS
         ):
             return True
 

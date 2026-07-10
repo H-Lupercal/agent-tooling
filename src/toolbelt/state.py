@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import time
 import tomllib
 import uuid
 from collections.abc import Iterator
@@ -13,12 +14,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from toolbelt.errors import ApplyError, ValidationError
-from toolbelt.paths import repository_identity, resolve_owned_path
 from pydantic import ValidationError as PydanticValidationError
 
+from toolbelt.errors import ApplyError, ValidationError
+from toolbelt.paths import repository_identity, resolve_owned_path
 from toolbelt.schemas import DeclarationV2, TransactionState
-
 
 STATE_SCHEMA_VERSION = 1
 _TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
@@ -33,7 +33,11 @@ _TRANSITIONS: dict[TransactionState, frozenset[TransactionState]] = {
         {TransactionState.SUCCEEDED, TransactionState.ROLLING_BACK, TransactionState.INTERRUPTED}
     ),
     TransactionState.ROLLING_BACK: frozenset(
-        {TransactionState.ROLLED_BACK, TransactionState.ROLLBACK_FAILED, TransactionState.INTERRUPTED}
+        {
+            TransactionState.ROLLED_BACK,
+            TransactionState.ROLLBACK_FAILED,
+            TransactionState.INTERRUPTED,
+        }
     ),
     TransactionState.INTERRUPTED: frozenset(
         {TransactionState.VERIFYING, TransactionState.ROLLING_BACK}
@@ -56,6 +60,8 @@ class StateStore:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
+        if self.path.is_symlink():
+            raise ValidationError("state database must not be a symbolic link")
         connection = sqlite3.connect(
             self.path,
             timeout=self.busy_timeout_ms / 1_000,
@@ -67,14 +73,28 @@ class StateStore:
         return connection
 
     def _initialize(self) -> None:
-        connection = self._connect()
-        try:
-            connection.execute("PRAGMA journal_mode = WAL").fetchone()
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if version not in {0, STATE_SCHEMA_VERSION}:
-                raise ValidationError(f"unsupported Toolbelt state schema: {version}")
-            connection.executescript(
-                """
+        last_error: sqlite3.OperationalError | None = None
+        for attempt in range(5):
+            connection = self._connect()
+            try:
+                connection.execute("PRAGMA journal_mode = WAL").fetchone()
+                self._initialize_schema(connection)
+                return
+            except sqlite3.OperationalError as exc:
+                last_error = exc
+                if "locked" not in str(exc).lower() or attempt == 4:
+                    raise ApplyError(f"cannot initialize state database: {exc}") from exc
+                time.sleep(0.02 * (attempt + 1))
+            finally:
+                connection.close()
+        raise ApplyError(f"cannot initialize state database: {last_error}")
+
+    def _initialize_schema(self, connection: sqlite3.Connection) -> None:
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if version not in {0, STATE_SCHEMA_VERSION}:
+            raise ValidationError(f"unsupported Toolbelt state schema: {version}")
+        connection.executescript(
+            """
                 CREATE TABLE IF NOT EXISTS transactions (
                     transaction_id TEXT PRIMARY KEY,
                     plan_id TEXT NOT NULL,
@@ -126,10 +146,8 @@ class StateStore:
                 CREATE INDEX IF NOT EXISTS idx_transactions_state ON transactions(state);
                 CREATE INDEX IF NOT EXISTS idx_commands_transaction ON command_results(transaction_id);
                 """
-            )
-            connection.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION}")
-        finally:
-            connection.close()
+        )
+        connection.execute(f"PRAGMA user_version = {STATE_SCHEMA_VERSION}")
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:

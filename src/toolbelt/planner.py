@@ -22,7 +22,6 @@ from toolbelt.schemas import (
 )
 from toolbelt.state import atomic_write_text
 
-
 _MAX_BOUND_FILES = 25_000
 _MAX_BOUND_BYTES = 64 * 1024 * 1024
 _IGNORED_DIRECTORIES = frozenset(
@@ -120,6 +119,7 @@ def build_explicit_plan_v2(
         raise ValidationError("plan TTL must be positive and no longer than seven days")
     catalog_digest = _catalog_digest(catalog)
     capability_digest = _capability_digest(capabilities)
+    _validate_action_contracts(tuple(actions), catalog)
     binding = _repository_binding(repository_root)
     draft = PlanV2(
         plan_id="0" * 64,
@@ -188,6 +188,10 @@ def validate_plan_binding(
     current_tools = {tool.id: tool.version for tool in catalog}
     if current_tools != plan.catalog_tools:
         raise StalePlanError("catalog tool versions changed after planning")
+    try:
+        _validate_action_contracts(plan.actions, catalog)
+    except ValidationError as exc:
+        raise StalePlanError(str(exc)) from exc
     if _capability_digest(capabilities) != plan.capability_digest:
         raise StalePlanError("capability inventory changed after planning")
 
@@ -213,6 +217,32 @@ def _validated_root(root: str | Path) -> Path:
     if not resolved.is_dir():
         raise ValidationError("repository root must be a directory")
     return resolved
+
+
+def _validate_action_contracts(actions: tuple[ActionV2, ...], catalog: CatalogV2) -> None:
+    by_id = {tool.id: tool for tool in catalog}
+    for action in actions:
+        tool = by_id.get(action.tool_id)
+        if tool is None or action.tool_version != tool.version:
+            raise ValidationError(f"action {action.id} has no exact catalog contract")
+        if (
+            action.install_scope != tool.install_scope
+            or action.permissions != tool.permissions
+            or action.required_env != tool.required_env
+        ):
+            raise ValidationError(f"action {action.id} changes catalog security metadata")
+        if action.operation is ActionOperation.INSTALL:
+            expected = ((tool.install,), (tool.verify,), (tool.rollback,))
+        elif action.operation in {ActionOperation.ADOPT, ActionOperation.VERIFY}:
+            expected = ((), (tool.verify,), ())
+        elif action.operation is ActionOperation.REMOVE:
+            expected = ((tool.rollback,), (), (tool.install,))
+        else:
+            raise ValidationError(
+                f"action {action.id} uses unsupported operation {action.operation.value}"
+            )
+        if (action.steps, action.verify, action.rollback) != expected:
+            raise ValidationError(f"action {action.id} command contract differs from the catalog")
 
 
 def _aware_utc(value: datetime | None) -> datetime:

@@ -9,11 +9,10 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path, PurePosixPath
-from typing import overload
+from typing import Literal, overload
 
 from toolbelt.ignore import IgnoreRules
-from toolbelt.schemas import EvidenceV2
-
+from toolbelt.schemas import EvidenceStrength, EvidenceV2
 
 _MANIFEST_FILES = frozenset(
     {
@@ -164,9 +163,7 @@ def _collect_files(
     bytes_scanned = 0
     entries_seen = 0
     stopped = False
-    stack: list[tuple[Path, PurePosixPath, IgnoreRules]] = [
-        (root, PurePosixPath("."), root_rules)
-    ]
+    stack: list[tuple[Path, PurePosixPath, IgnoreRules]] = [(root, PurePosixPath("."), root_rules)]
 
     while stack and not stopped:
         directory, relative_directory, rules = stack.pop()
@@ -443,9 +440,7 @@ def _detect_infrastructure(
     ):
         keys.append("compose")
         text = _read_text(root, record, warnings)
-        if text is not None and re.search(
-            r"image:\s*[\"']?postgres(?:[:\"'\s]|$)", text, re.I
-        ):
+        if text is not None and re.search(r"image:\s*[\"']?postgres(?:[:\"'\s]|$)", text, re.I):
             keys.append("postgres")
     if path.suffix.lower() == ".tf":
         keys.append("terraform")
@@ -564,14 +559,14 @@ def _add_evidence(
     key: str,
     detail: str,
     source: str,
-    strength: str,
+    strength: Literal["weak", "strong", "required"],
 ) -> None:
     item = EvidenceV2(
         type=type,
         key=key,
         detail=detail[:2048],
         source=source,
-        strength=strength,
+        strength=EvidenceStrength(strength),
     )
     evidence[(item.type, item.key, item.source, item.detail)] = item
 

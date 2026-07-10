@@ -3,13 +3,14 @@ from __future__ import annotations
 import os
 import shutil
 import signal
+import stat
 import subprocess
-import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from toolbelt.catalog import CatalogV2
 from toolbelt.errors import ApplyError, DriftError, ValidationError, VerificationError
@@ -186,9 +187,7 @@ class Executor:
                                 timed_out=result.timed_out,
                             )
                             if result.timed_out or result.returncode != 0:
-                                raise VerificationError(
-                                    f"action {action.id} failed verification"
-                                )
+                                raise VerificationError(f"action {action.id} failed verification")
                         store.record_action(
                             transaction_id,
                             action.id,
@@ -331,8 +330,43 @@ class Executor:
             for step in (*action.steps, *action.rollback):
                 self._require_executable(step.argv[0])
         existing = load_declaration(root)
-        if existing is not None and existing.repository_identity != plan.repository.identity:
-            raise DriftError("existing declaration belongs to a different repository identity")
+        if existing is not None:
+            if existing.repository_identity != plan.repository.identity:
+                raise DriftError("existing declaration belongs to a different repository identity")
+            current_versions = {tool.id: tool.version for tool in catalog}
+            mismatched = sorted(
+                tool.tool_id
+                for tool in existing.tools
+                if current_versions.get(tool.tool_id) != tool.version
+            )
+            if mismatched:
+                raise DriftError(
+                    "declared tool versions differ from the current catalog: "
+                    + ", ".join(mismatched)
+                )
+            if existing.catalog_digest != catalog.digest:
+                verified = {
+                    action.tool_id
+                    for action in plan.actions
+                    if action.operation is ActionOperation.VERIFY
+                }
+                declared = {tool.tool_id for tool in existing.tools}
+                if verified != declared:
+                    raise DriftError(
+                        "catalog changed since declaration; verify every declared tool first"
+                    )
+            declared_ids = {tool.tool_id for tool in existing.tools}
+            for action in plan.actions:
+                if action.operation in {ActionOperation.INSTALL, ActionOperation.ADOPT}:
+                    if action.tool_id in declared_ids:
+                        raise DriftError(
+                            f"tool is already declared and cannot be reinstalled: {action.tool_id}"
+                        )
+                elif action.operation in {ActionOperation.VERIFY, ActionOperation.REMOVE}:
+                    if action.tool_id not in declared_ids:
+                        raise DriftError(
+                            f"tool is not declared for {action.operation.value}: {action.tool_id}"
+                        )
         return existing
 
     def _run_step(
@@ -351,31 +385,51 @@ class Executor:
             popen_options["start_new_session"] = True
         started = time.monotonic()
         timed_out = False
-        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-            process = subprocess.Popen(
-                list(step.argv),
-                cwd=cwd,
-                env=self.environment,
-                stdin=subprocess.DEVNULL,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                shell=False,
-                creationflags=flags,
-                **popen_options,
-            )
-            try:
-                process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _terminate_process_group(process)
-            duration = time.monotonic() - started
-            stdout = _read_bounded(stdout_file, self.max_output_bytes)
-            stderr = _read_bounded(stderr_file, self.max_output_bytes)
-        secrets = tuple(
-            value
-            for name in required_env
-            if (value := self.environment.get(name))
+        process = subprocess.Popen(
+            list(step.argv),
+            cwd=cwd,
+            env=self.environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            creationflags=flags,
+            **popen_options,
         )
+        if process.stdout is None or process.stderr is None:  # pragma: no cover - Popen contract
+            raise ApplyError("subprocess pipes were not created")
+        stdout_buffer = bytearray()
+        stderr_buffer = bytearray()
+        readers = (
+            threading.Thread(
+                target=_drain_pipe,
+                args=(process.stdout, stdout_buffer, self.max_output_bytes),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=_drain_pipe,
+                args=(process.stderr, stderr_buffer, self.max_output_bytes),
+                daemon=True,
+            ),
+        )
+        for reader in readers:
+            reader.start()
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _terminate_process_group(process)
+        for reader in readers:
+            reader.join(timeout=1)
+        if any(reader.is_alive() for reader in readers):
+            process.stdout.close()
+            process.stderr.close()
+            for reader in readers:
+                reader.join(timeout=1)
+        duration = time.monotonic() - started
+        stdout = bytes(stdout_buffer)
+        stderr = bytes(stderr_buffer)
+        secrets = tuple(value for name in required_env if (value := self.environment.get(name)))
         stdout_text, stdout_redacted = _decode_and_redact(stdout, secrets)
         stderr_text, stderr_redacted = _decode_and_redact(stderr, secrets)
         return CommandResultV2(
@@ -520,9 +574,7 @@ class Executor:
             sha256_digest=sha256(content).hexdigest(),
         )
 
-    def _backup_bytes(
-        self, store: StateStore, root: Path, transaction_id: str
-    ) -> bytes | None:
+    def _backup_bytes(self, store: StateStore, root: Path, transaction_id: str) -> bytes | None:
         backups = store.backups_for_transaction(transaction_id)
         if not backups:
             return None
@@ -559,7 +611,22 @@ class _ApplyLock:
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._stream = open(self.path, "a+b")
+        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | int(getattr(os, "O_CLOEXEC", 0))
+        flags |= int(getattr(os, "O_NOFOLLOW", 0))
+        try:
+            descriptor = os.open(self.path, flags, 0o600)
+            opened = os.fstat(descriptor)
+            current = self.path.lstat()
+            if (
+                stat.S_ISLNK(current.st_mode)
+                or opened.st_dev != current.st_dev
+                or opened.st_ino != current.st_ino
+            ):
+                os.close(descriptor)
+                raise ApplyError("apply lock path changed during open")
+            self._stream = os.fdopen(descriptor, "a+b")
+        except OSError as exc:
+            raise ApplyError("apply lock path is unsafe or unavailable") from exc
         self._stream.seek(0, os.SEEK_END)
         if self._stream.tell() == 0:
             self._stream.write(b"0")
@@ -605,7 +672,17 @@ def _terminate_process_group(process: subprocess.Popen) -> None:
         return
     try:
         if os.name == "nt":
-            process.terminate()
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+                check=False,
+                shell=False,
+            )
+            if process.poll() is None:
+                process.terminate()
         else:
             os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=0.5)
@@ -620,10 +697,14 @@ def _terminate_process_group(process: subprocess.Popen) -> None:
             pass
 
 
-def _read_bounded(stream, maximum: int) -> bytes:
-    stream.flush()
-    stream.seek(0)
-    return stream.read(maximum)
+def _drain_pipe(stream: BinaryIO, output: bytearray, maximum: int) -> None:
+    try:
+        while chunk := stream.read(64 * 1024):
+            remaining = maximum - len(output)
+            if remaining > 0:
+                output.extend(chunk[:remaining])
+    except (OSError, ValueError):
+        return
 
 
 def _decode_and_redact(value: bytes, secrets: tuple[str, ...]) -> tuple[str, bool]:

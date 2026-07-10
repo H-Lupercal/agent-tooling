@@ -33,9 +33,7 @@ def recommend(
     allow_network: bool = False,
 ) -> list[Recommendation]:
     inventory = tuple(evidence)
-    by_match_key: dict[str, EvidenceV2] = {
-        f"{item.type}:{item.key}": item for item in inventory
-    }
+    by_match_key: dict[str, EvidenceV2] = {f"{item.type}:{item.key}": item for item in inventory}
     native = set(capabilities.native)
     installed = set(capabilities.installed)
     managed = set(capabilities.managed)
@@ -70,12 +68,10 @@ def recommend(
                 )
             )
         )
-        matched = tuple(
-            sorted(
-                {*strong, *weak},
-                key=lambda item: (item.type, item.key, item.source, item.detail),
-            )
-        )
+        matched_by_key = {
+            (item.type, item.key, item.source, item.detail): item for item in (*strong, *weak)
+        }
+        matched = tuple(matched_by_key[key] for key in sorted(matched_by_key))
         live_names = {tool.id}
         if tool.live_name is not None:
             live_names.add(tool.live_name)
@@ -152,9 +148,7 @@ def _matched(
     strengths: set[EvidenceStrength],
 ) -> tuple[EvidenceV2, ...]:
     return tuple(
-        evidence[key]
-        for key in keys
-        if key in evidence and evidence[key].strength in strengths
+        evidence[key] for key in keys if key in evidence and evidence[key].strength in strengths
     )
 
 

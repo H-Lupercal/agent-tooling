@@ -37,7 +37,7 @@ homepage = "https://example.com/ruff"
 license = "MIT"
 platforms = {json.dumps(platforms)}
 harnesses = ["claude", "codex"]
-permissions = ["network", "process-spawn"]
+permissions = ["network", "filesystem-write", "process-spawn"]
 install_scope = "project"
 artifacts = ["pyproject.toml"]
 required_env = []
@@ -146,6 +146,17 @@ def test_package_provenance_must_declare_network_use(tmp_path: Path):
     )
 
     with pytest.raises(CatalogV2Error, match="declare network"):
+        load_catalog_v2(path)
+
+
+def test_catalog_requires_filesystem_authority_for_installation(tmp_path: Path) -> None:
+    block = _tool_block().replace(
+        'permissions = ["network", "filesystem-write", "process-spawn"]',
+        'permissions = ["network", "process-spawn"]',
+    )
+    path = _write_catalog(tmp_path / "missing-write.toml", block)
+
+    with pytest.raises(CatalogV2Error, match="filesystem-write"):
         load_catalog_v2(path)
 
 
