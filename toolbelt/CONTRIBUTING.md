@@ -5,8 +5,8 @@ By participating, follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 ## Setup
 
 ```sh
-git clone https://github.com/H-Lupercal/toolbelt.git
-cd toolbelt
+git clone https://github.com/H-Lupercal/agent-tooling.git
+cd agent-tooling/toolbelt
 uv sync --extra dev --locked
 uv run make check
 uv run make e2e

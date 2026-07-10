@@ -16,6 +16,8 @@ All notable changes are recorded here. The project follows semantic versioning.
   recovery, stable JSON output, and stable exit codes.
 - Added cross-platform CI, clean artifact tests, dependency audit, CodeQL, SBOM,
   attestations, and PyPI Trusted Publishing.
+- Restricted source distributions to public documentation and portable project
+  content; internal planning material and checkout-specific paths are excluded.
 
 ### Breaking
 

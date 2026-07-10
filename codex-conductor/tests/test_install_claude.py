@@ -19,6 +19,7 @@ class ClaudeInstallTests(unittest.TestCase):
                     {
                         "model": "opus",
                         "hooks": {
+                            "Notification": [],
                             "SessionStart": [
                                 {
                                     "hooks": [
@@ -114,6 +115,7 @@ class ClaudeInstallTests(unittest.TestCase):
                     }
                 ],
             )
+            self.assertEqual(uninstalled["hooks"]["Notification"], [])
             self.assertNotIn("SubagentStart", uninstalled["hooks"])
             self.assertNotIn("SubagentStop", uninstalled["hooks"])
             self.assertNotIn(

@@ -52,6 +52,39 @@ class PricingTests(unittest.TestCase):
             missing_dimension = ConductorConfig.model_validate(raw)
             self.assertFalse(pricing_verified(missing_dimension))
 
+    def test_verified_estimate_and_usage_parsing(self):
+        from conductor.config import load_ladder
+        from conductor.pricing import (
+            TokenUsage,
+            estimate_usd,
+            token_usage_from_dict,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ladder = load_ladder(write_config(Path(tmp) / "conductor.toml"))
+            usage = TokenUsage(1000, 100, 20, 5, 1020)
+            self.assertEqual(usage.as_dict()["input_tokens"], 1000)
+            self.assertAlmostEqual(
+                estimate_usd(usage, ladder.tiers[0], ladder),
+                0.0097,
+                places=5,
+            )
+
+        self.assertIsNone(token_usage_from_dict(None))
+        self.assertIsNone(token_usage_from_dict({"input_tokens": object()}))
+        self.assertEqual(
+            token_usage_from_dict(
+                {
+                    "input_tokens": "10",
+                    "cached_input_tokens": 2,
+                    "output_tokens": 3,
+                    "reasoning_output_tokens": 1,
+                    "total_tokens": 13,
+                }
+            ),
+            TokenUsage(10, 2, 3, 1, 13),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

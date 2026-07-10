@@ -1,3 +1,18 @@
 .worktrees/
 .gstack/
 
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.hypothesis/
+.venv/
+.coverage
+.coverage.*
+coverage.json
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/

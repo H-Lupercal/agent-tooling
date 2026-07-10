@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+import conductor.config as config_module
+from conductor.errors import ConfigError
 from tests.helpers import restore_env, set_env, write_config, write_models_cache
 from tests.test_schemas import deep_merge, valid_config
 
@@ -102,3 +104,81 @@ def test_tier_integrity_constraints(mutate, message: str) -> None:
     mutate(payload)
     with pytest.raises(ValidationError, match=message):
         ConductorConfig.model_validate(payload)
+
+
+def test_config_paths_honor_environment_install_and_package_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = tmp_path / "configured.toml"
+    monkeypatch.setenv("CODEX_CONDUCTOR_CONFIG", str(configured))
+    assert config_module.default_config_path() == configured
+
+    monkeypatch.delenv("CODEX_CONDUCTOR_CONFIG")
+    home = tmp_path / "home"
+    installed = home / "conductor.toml"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("schema_version = 2\n", encoding="utf-8")
+    monkeypatch.setattr(config_module, "conductor_home", lambda: home)
+    assert config_module.default_config_path() == installed
+
+    installed.unlink()
+    fallback = config_module.default_config_path()
+    assert fallback.name == "conductor.toml"
+    assert fallback.is_file()
+
+    cache = tmp_path / "models.json"
+    monkeypatch.setenv("CODEX_MODELS_CACHE", str(cache))
+    assert config_module.models_cache_path() == cache
+    assert config_module.provider_home("claude").parts[-2:] == (".claude", "conductor")
+
+
+def test_load_config_reports_io_toml_override_and_schema_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ConfigError, match="cannot load conductor config"):
+        config_module.load_config(tmp_path / "missing.toml")
+
+    invalid_toml = tmp_path / "invalid.toml"
+    invalid_toml.write_text("not = [valid", encoding="utf-8")
+    with pytest.raises(ConfigError, match="cannot load conductor config"):
+        config_module.load_config(invalid_toml)
+
+    config_path = write_config(tmp_path / "conductor.toml")
+    monkeypatch.setenv("CONDUCTOR_RUN_USD_CAP", "not-a-number")
+    with pytest.raises(ConfigError, match="finite positive"):
+        config_module.load_config(config_path)
+
+    no_budget = tmp_path / "no-budget.toml"
+    no_budget.write_text("schema_version = 2\n", encoding="utf-8")
+    monkeypatch.setenv("CONDUCTOR_RUN_USD_CAP", "1.0")
+    with pytest.raises(ConfigError, match="budget must be a table"):
+        config_module.load_config(no_budget)
+
+    monkeypatch.delenv("CONDUCTOR_RUN_USD_CAP")
+    invalid_schema = tmp_path / "invalid-schema.toml"
+    invalid_schema.write_text("schema_version = 2\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="invalid conductor config"):
+        config_module.load_config(invalid_schema)
+
+
+def test_models_cache_filtering_and_budget_copy_are_deterministic(
+    tmp_path: Path,
+) -> None:
+    config = config_module.load_config(write_config(tmp_path / "conductor.toml"))
+    missing = tmp_path / "missing.json"
+    assert config_module.enabled_tiers(config, missing) == [0, 1]
+
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text("[]", encoding="utf-8")
+    assert config_module.enabled_tiers(config, malformed) == [0, 1]
+
+    mixed = tmp_path / "mixed.json"
+    mixed.write_text(
+        '{"models": [null, {"slug": 1}, {"slug": "gpt-5.4-mini"}]}',
+        encoding="utf-8",
+    )
+    assert config_module.enabled_tiers(config, mixed) == [0, 1, 2]
+
+    changed = config_module.with_budget(config, 3.5)
+    assert changed.budget.run_usd_cap == 3.5
+    assert config.budget.run_usd_cap != changed.budget.run_usd_cap

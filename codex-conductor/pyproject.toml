@@ -24,7 +24,7 @@ classifiers = [
     "Operating System :: OS Independent",
     "Typing :: Typed",
 ]
-urls = { Homepage = "https://github.com/H-Lupercal/codex-conductor", Documentation = "https://github.com/H-Lupercal/codex-conductor#readme", Repository = "https://github.com/H-Lupercal/codex-conductor", Issues = "https://github.com/H-Lupercal/codex-conductor/issues", Changelog = "https://github.com/H-Lupercal/codex-conductor/blob/main/CHANGELOG.md" }
+urls = { Homepage = "https://github.com/H-Lupercal/agent-tooling/tree/main/codex-conductor", Documentation = "https://github.com/H-Lupercal/agent-tooling/tree/main/codex-conductor#readme", Repository = "https://github.com/H-Lupercal/agent-tooling/tree/main/codex-conductor", Issues = "https://github.com/H-Lupercal/agent-tooling/issues", Changelog = "https://github.com/H-Lupercal/agent-tooling/blob/main/codex-conductor/CHANGELOG.md" }
 dependencies = [
     "pydantic>=2.8,<3",
 ]
@@ -60,6 +60,7 @@ include = [
     "/LICENSE",
     "/Makefile",
     "/README.md",
+    "/scripts",
     "/SECURITY.md",
     "/CONTRIBUTING.md",
     "/CODE_OF_CONDUCT.md",
@@ -85,7 +86,7 @@ branch = true
 source = ["conductor"]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 90
 show_missing = true
 skip_covered = true
 exclude_also = [

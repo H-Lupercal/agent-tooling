@@ -5,6 +5,10 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
+import conductor.status as status_module
+from conductor.errors import StateError
 from conductor.schemas import LifecycleEvent, RawUsage
 from conductor.store import Store
 from tests.helpers import (
@@ -153,5 +157,78 @@ def test_invalid_or_missing_run_returns_nonzero(tmp_path: Path) -> None:
 def test_provider_home_maps_each_provider() -> None:
     from conductor.config import provider_home
 
-    assert str(provider_home("claude")).endswith("/.claude/conductor")
-    assert str(provider_home("codex")).endswith("/.codex/conductor")
+    assert provider_home("claude") == Path.home() / ".claude" / "conductor"
+    assert provider_home("codex") == Path.home() / ".codex" / "conductor"
+
+
+def test_status_reports_budget_pricing_lease_recovery_and_active_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, old = _environment(tmp_path)
+
+    class SnapshotStore:
+        def latest_run_id(self):
+            return "run-1"
+
+        def run_snapshot(self, run_id):
+            return {
+                "run_id": run_id,
+                "costs": {"total_usd": 9.0},
+                "reserved_usd": 1.0,
+                "lease": None,
+                "recoverable": 2,
+                "reservations": [
+                    {"state": "approved", "tier": "mini", "count": 2},
+                    {"state": "started", "tier": "mini", "count": 1},
+                    {"state": "denied", "tier": "frontier", "count": 5},
+                ],
+            }
+
+    monkeypatch.setattr(status_module, "pricing_verified", lambda _config: False)
+    monkeypatch.setattr(status_module, "enabled_tiers", lambda *_args: [])
+    try:
+        status = status_module.build_status(store=SnapshotStore())  # type: ignore[arg-type]
+    finally:
+        restore_env(old)
+
+    assert status["remaining_usd"] == 0
+    assert status["active"] == {"mini": 3}
+    assert status["enabled_tiers"] == []
+    assert status["warnings"] == [
+        "budget warning threshold reached",
+        "pricing is unverified; dollar costs may use task estimates",
+        "run lease is inactive",
+        "2 lifecycle record(s) require recovery",
+    ]
+
+
+def test_status_rejects_empty_or_missing_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, old = _environment(tmp_path)
+
+    class EmptyStore:
+        def latest_run_id(self):
+            return None
+
+    try:
+        with pytest.raises(StateError, match="no conductor runs"):
+            status_module.build_status(store=EmptyStore())  # type: ignore[arg-type]
+    finally:
+        restore_env(old)
+
+    monkeypatch.setattr(status_module, "store_path", lambda: tmp_path / "missing.db")
+    with pytest.raises(StateError, match="store does not exist"):
+        status_module._existing_store()
+
+
+def test_status_main_maps_unexpected_value_error_to_internal_exit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        status_module,
+        "build_status",
+        lambda *_args: (_ for _ in ()).throw(ValueError("invalid snapshot")),
+    )
+    assert status_module.main([]) != 0
+    assert "invalid snapshot" in capsys.readouterr().err

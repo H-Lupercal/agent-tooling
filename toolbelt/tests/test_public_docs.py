@@ -5,6 +5,7 @@ from pathlib import Path
 from toolbelt.cli import build_parser
 
 ROOT = Path(__file__).resolve().parents[1]
+MONOREPO_ROOT = ROOT.parent
 PUBLIC_DOCS = (
     "README.md",
     "SECURITY.md",
@@ -67,7 +68,7 @@ def test_every_cli_command_is_documented() -> None:
 def test_public_governance_and_release_files_exist() -> None:
     for path in PUBLIC_DOCS:
         assert (ROOT / path).is_file(), path
-    release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    release = (MONOREPO_ROOT / ".github/workflows/release-toolbelt.yml").read_text(encoding="utf-8")
     assert "id-token: write" in release
     assert "gh-action-pypi-publish" in release
     assert "PYPI_API_TOKEN" not in release

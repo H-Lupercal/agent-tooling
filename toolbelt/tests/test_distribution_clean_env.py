@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import venv
 import zipfile
@@ -66,10 +67,10 @@ def test_public_metadata_and_console_entrypoint() -> None:
     assert callable(main)
 
 
-def test_wheel_contains_v2_catalog_and_no_legacy_catalog(
+def test_artifacts_contain_only_public_portable_content(
     artifacts: tuple[Path, Path, Path],
 ) -> None:
-    wheel, _, _ = artifacts
+    wheel, sdist, _ = artifacts
     with zipfile.ZipFile(wheel) as archive:
         names = set(archive.namelist())
         assert "toolbelt/data/catalog.toml" in names
@@ -77,6 +78,16 @@ def test_wheel_contains_v2_catalog_and_no_legacy_catalog(
         for name in names:
             if name.endswith((".py", ".toml", ".md")):
                 assert b"/home/neil" not in archive.read(name)
+
+    with tarfile.open(sdist, mode="r:gz") as archive:
+        names = {member.name for member in archive.getmembers()}
+        assert not any("/docs/superpowers/" in name for name in names)
+        private_checkout = b"/home/" + b"neil/VSproj"
+        for member in archive.getmembers():
+            if member.isfile() and member.name.endswith((".py", ".toml", ".md")):
+                extracted = archive.extractfile(member)
+                assert extracted is not None
+                assert private_checkout not in extracted.read()
 
 
 @pytest.mark.parametrize("kind", ["wheel", "sdist"])

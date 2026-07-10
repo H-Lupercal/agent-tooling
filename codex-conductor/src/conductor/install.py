@@ -573,6 +573,8 @@ def _remove_claude_settings(path: Path, hooks_dir: Path, dry_run: bool) -> None:
         filtered = [
             item for item in current if not _is_conductor_entry(item, hooks_dir)
         ]
+        if len(filtered) == len(current):
+            continue
         if filtered:
             hooks[event] = filtered
         else:

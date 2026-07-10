@@ -46,10 +46,11 @@ dev = [
 toolbelt = "toolbelt.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/H-Lupercal/toolbelt"
-Documentation = "https://github.com/H-Lupercal/toolbelt#readme"
-Issues = "https://github.com/H-Lupercal/toolbelt/issues"
-Source = "https://github.com/H-Lupercal/toolbelt"
+Homepage = "https://github.com/H-Lupercal/agent-tooling/tree/main/toolbelt"
+Documentation = "https://github.com/H-Lupercal/agent-tooling/tree/main/toolbelt#readme"
+Issues = "https://github.com/H-Lupercal/agent-tooling/issues"
+Source = "https://github.com/H-Lupercal/agent-tooling/tree/main/toolbelt"
+Changelog = "https://github.com/H-Lupercal/agent-tooling/blob/main/toolbelt/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/toolbelt/__init__.py"
@@ -62,6 +63,7 @@ include = [
   "/LICENSE",
   "/README.md",
   "/RELEASING.md",
+  "/scripts",
   "/SECURITY.md",
   "/SUPPORT.md",
   "/docs",
@@ -70,6 +72,7 @@ include = [
   "/tests",
   "/uv.lock",
 ]
+exclude = ["/docs/superpowers"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/toolbelt"]
@@ -106,6 +109,6 @@ source = ["src/toolbelt"]
 patch = ["subprocess"]
 
 [tool.coverage.report]
-fail_under = 85
+fail_under = 90
 show_missing = true
 skip_covered = true

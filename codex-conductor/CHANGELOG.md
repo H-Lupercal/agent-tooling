@@ -36,6 +36,8 @@ Keep a Changelog, and the project uses Semantic Versioning.
   cheaper-child policy is enabled; it never reports that a model was selected.
 - Started work that exceeds its TTL remains capacity/budget committed and is
   surfaced for explicit recovery instead of silently expiring.
+- Claude uninstall removes only Conductor-owned hook entries and preserves every
+  unrelated hook event, including intentionally empty lists.
 
 ### Removed
 

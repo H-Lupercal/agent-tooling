@@ -1,0 +1,114 @@
+name: Release codex-conductor
+
+on:
+  push:
+    tags: ["codex-conductor-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-codex-conductor-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-verify:
+    name: Build and verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to sign the provenance attestation with GitHub OIDC.
+      id-token: write
+      # Required to persist the provenance attestation.
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: false
+      - run: uv sync --extra dev --locked
+        working-directory: codex-conductor
+      - run: uv run pytest -m "not distribution" --cov=conductor --cov-branch --cov-fail-under=90
+        working-directory: codex-conductor
+      - run: uv run pytest -m distribution -q
+        working-directory: codex-conductor
+      - run: PYTHON=.venv/bin/python bash tests/e2e_smoke.sh
+        working-directory: codex-conductor
+      - run: uv run pip-audit
+        working-directory: codex-conductor
+      - name: Verify tag matches package version
+        shell: bash
+        run: test "${GITHUB_REF_NAME}" = "codex-conductor-v$(uv run python -c 'from conductor import __version__; print(__version__)')"
+        working-directory: codex-conductor
+      - run: uv build --offline --clear
+        working-directory: codex-conductor
+      - run: uv run twine check dist/*.whl dist/*.tar.gz
+        working-directory: codex-conductor
+      - name: Create release metadata
+        shell: bash
+        run: |
+          uv venv --clear --python 3.13 build/sbom-venv
+          uv pip install --offline --link-mode=copy --python build/sbom-venv dist/*.whl
+          uv run cyclonedx-py environment build/sbom-venv --pyproject pyproject.toml --mc-type library --output-reproducible --of JSON --output-file "dist/codex-conductor-${GITHUB_REF_NAME}.cdx.json"
+          uv run --offline --no-project --python build/sbom-venv python scripts/finalize_sbom.py --input "dist/codex-conductor-${GITHUB_REF_NAME}.cdx.json" --distribution codex-conductor
+          cd dist
+          sha256sum *.whl *.tar.gz *.cdx.json > SHA256SUMS
+        working-directory: codex-conductor
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+        with:
+          subject-path: |
+            codex-conductor/dist/*.whl
+            codex-conductor/dist/*.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codex-conductor-pypi-distributions
+          path: |
+            codex-conductor/dist/*.whl
+            codex-conductor/dist/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codex-conductor-release-assets
+          path: codex-conductor/dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: build-and-verify
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to create or repair the GitHub release.
+      contents: write
+      # Required for PyPI Trusted Publishing.
+      id-token: write
+    environment:
+      name: pypi-codex-conductor
+      url: https://pypi.org/project/codex-conductor/
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: codex-conductor-pypi-distributions
+          path: codex-conductor-pypi-dist
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        with:
+          packages-dir: codex-conductor-pypi-dist/
+          skip-existing: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: codex-conductor-release-assets
+          path: codex-conductor-release-assets
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" codex-conductor-release-assets/* --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" codex-conductor-release-assets/* --verify-tag --generate-notes
+          fi

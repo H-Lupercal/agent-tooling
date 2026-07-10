@@ -1,0 +1,234 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-contract:
+    name: Release contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+          cache-dependency-glob: codex-conductor/uv.lock
+      - run: uv sync --directory codex-conductor --extra dev --locked
+      - run: >-
+          uv run --directory codex-conductor pytest
+          ../tests/test_release_contract.py -q
+
+  quality:
+    name: Quality (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [toolbelt, codex-conductor]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.project }}/uv.lock
+      - run: uv sync --extra dev --locked
+        working-directory: ${{ matrix.project }}
+      - run: make format-check PYTHON=.venv/bin/python
+        working-directory: ${{ matrix.project }}
+      - run: make lint PYTHON=.venv/bin/python
+        working-directory: ${{ matrix.project }}
+      - run: make typecheck PYTHON=.venv/bin/python
+        working-directory: ${{ matrix.project }}
+
+  test:
+    name: Tests (${{ matrix.project }}, ${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [toolbelt, codex-conductor]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.project }}/uv.lock
+      - run: uv sync --extra dev --locked
+        env:
+          UV_PYTHON: ${{ matrix.python }}
+        working-directory: ${{ matrix.project }}
+      - run: uv run pytest -m "not distribution" -q
+        working-directory: ${{ matrix.project }}
+
+  coverage:
+    name: Coverage (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: toolbelt
+            coverage-source: src/toolbelt
+          - project: codex-conductor
+            coverage-source: conductor
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.project }}/uv.lock
+      - run: uv sync --extra dev --locked
+        working-directory: ${{ matrix.project }}
+      - run: >-
+          uv run pytest -m "not distribution"
+          --cov="$COVERAGE_SOURCE" --cov-branch
+          --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=90
+        env:
+          COVERAGE_SOURCE: ${{ matrix.coverage-source }}
+        working-directory: ${{ matrix.project }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.project }}-coverage
+          path: ${{ matrix.project }}/coverage.xml
+          if-no-files-found: error
+
+  distribution:
+    name: Distribution (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [toolbelt, codex-conductor]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.project }}/uv.lock
+      - run: uv sync --extra dev --locked
+        working-directory: ${{ matrix.project }}
+      - run: uv run pytest -m distribution -q
+        working-directory: ${{ matrix.project }}
+      - run: uv build --offline --clear
+        working-directory: ${{ matrix.project }}
+      - run: uv run twine check dist/*.whl dist/*.tar.gz
+        working-directory: ${{ matrix.project }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.project }}-distributions
+          path: ${{ matrix.project }}/dist/*
+          if-no-files-found: error
+
+  e2e:
+    name: End to end (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [toolbelt, codex-conductor]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.project }}/uv.lock
+      - run: uv sync --extra dev --locked
+        working-directory: ${{ matrix.project }}
+      - name: Run end-to-end smoke test
+        shell: bash
+        run: PYTHON=.venv/bin/python bash tests/e2e_smoke.sh
+        working-directory: ${{ matrix.project }}
+
+  supply-chain:
+    name: Supply chain (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: toolbelt
+            distribution: toolbelt-ai
+          - project: codex-conductor
+            distribution: codex-conductor
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.project }}/uv.lock
+      - run: uv sync --extra dev --locked
+        working-directory: ${{ matrix.project }}
+      - run: uv run pip-audit
+        working-directory: ${{ matrix.project }}
+      - run: uv build --offline --clear
+        working-directory: ${{ matrix.project }}
+      - run: uv venv --clear --python 3.13 build/sbom-venv
+        working-directory: ${{ matrix.project }}
+      - run: uv pip install --offline --link-mode=copy --python build/sbom-venv dist/*.whl
+        working-directory: ${{ matrix.project }}
+      - run: >-
+          uv run cyclonedx-py environment build/sbom-venv
+          --pyproject pyproject.toml
+          --mc-type library --output-reproducible --of JSON
+          --output-file sbom.cdx.json
+        working-directory: ${{ matrix.project }}
+      - run: >-
+          uv run --offline --no-project --python build/sbom-venv
+          python scripts/finalize_sbom.py --input sbom.cdx.json
+          --distribution "$SBOM_DISTRIBUTION"
+        env:
+          SBOM_DISTRIBUTION: ${{ matrix.distribution }}
+        working-directory: ${{ matrix.project }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.project }}-sbom
+          path: ${{ matrix.project }}/sbom.cdx.json
+          if-no-files-found: error

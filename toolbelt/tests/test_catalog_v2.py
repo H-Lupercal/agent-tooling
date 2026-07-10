@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from toolbelt.catalog import CatalogV2Error, load_catalog_v2
+from toolbelt.catalog import CatalogV2Error, default_catalog_path, load_catalog_v2
 
 
 def _tool_block(
@@ -172,3 +172,102 @@ def test_local_override_digest_changes_with_exact_bytes(tmp_path: Path):
 
     assert first_catalog.digest != second_catalog.digest
     assert first_catalog.source == str(first.resolve())
+
+
+def test_catalog_sequence_and_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write_catalog(tmp_path / "override.toml", _tool_block())
+    monkeypatch.setenv("TOOLBELT_CATALOG", str(path))
+
+    assert default_catalog_path() == path
+    catalog = load_catalog_v2()
+    assert catalog[0].id == "ruff"
+    assert catalog[:] == catalog.tools
+    assert catalog.source == str(path.resolve())
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (b"\xff", "valid UTF-8"),
+        (b"not = [valid", "invalid catalog TOML"),
+        (b"schema_version = 2\nextra = true\ntool = []\n", "root accepts only"),
+        (b"schema_version = true\ntool = []\n", "schema_version must be integer 2"),
+        (b"schema_version = 2\ntool = []\n", "nonempty array"),
+        (b'schema_version = 2\ntool = ["bad"]\n', "entries must be tables"),
+    ],
+)
+def test_catalog_rejects_malformed_roots(tmp_path: Path, content: bytes, message: str) -> None:
+    path = tmp_path / "malformed.toml"
+    path.write_bytes(content)
+
+    with pytest.raises(CatalogV2Error, match=message):
+        load_catalog_v2(path)
+
+
+def test_catalog_rejects_missing_oversized_and_invalid_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(CatalogV2Error, match="catalog not found"):
+        load_catalog_v2(tmp_path / "missing.toml")
+
+    oversized = _write_catalog(tmp_path / "oversized.toml", _tool_block())
+    monkeypatch.setattr("toolbelt.catalog._CATALOG_MAX_BYTES", 1)
+    with pytest.raises(CatalogV2Error, match="size limit"):
+        load_catalog_v2(oversized)
+    monkeypatch.setattr("toolbelt.catalog._CATALOG_MAX_BYTES", 1024 * 1024)
+
+    invalid = _write_catalog(
+        tmp_path / "invalid-entry.toml",
+        _tool_block().replace('id = "ruff"', 'id = "INVALID ID"'),
+    )
+    with pytest.raises(CatalogV2Error, match="invalid catalog entry"):
+        load_catalog_v2(invalid)
+
+
+def test_catalog_requires_declared_network_and_credentials_permissions(tmp_path: Path) -> None:
+    no_network = _tool_block().replace(
+        'permissions = ["network", "filesystem-write", "process-spawn"]',
+        'permissions = ["filesystem-write", "process-spawn"]',
+    )
+    network_path = _write_catalog(tmp_path / "network-permission.toml", no_network)
+    with pytest.raises(CatalogV2Error, match="network operation lacks network permission"):
+        load_catalog_v2(network_path)
+
+    no_credentials = _tool_block().replace(
+        "required_env = []",
+        'required_env = ["PRIVATE_TOKEN"]',
+    )
+    credentials_path = _write_catalog(tmp_path / "credentials.toml", no_credentials)
+    with pytest.raises(CatalogV2Error, match="credentials-read"):
+        load_catalog_v2(credentials_path)
+
+
+@pytest.mark.parametrize(
+    "provenance",
+    (
+        "pypi:ruff==0.8.6;python_version>'3.11'",
+        "npm:ruff@latest",
+        "npm:@0.8.6",
+        "cargo:ruff",
+    ),
+)
+def test_catalog_rejects_additional_unpinned_provenance(tmp_path: Path, provenance: str) -> None:
+    path = _write_catalog(
+        tmp_path / "unpinned.toml",
+        _tool_block(provenance=provenance),
+    )
+
+    with pytest.raises(CatalogV2Error, match="must be pinned"):
+        load_catalog_v2(path)
+
+
+def test_catalog_rejects_credentials_embedded_in_urls(tmp_path: Path) -> None:
+    path = _write_catalog(
+        tmp_path / "credential-url.toml",
+        _tool_block(install_argv=("tool", "https://user:password@example.com/archive")),
+    )
+
+    with pytest.raises(CatalogV2Error, match="secret-shaped argv"):
+        load_catalog_v2(path)
