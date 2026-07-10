@@ -1,0 +1,111 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "toolbelt-ai"
+dynamic = ["version"]
+description = "A deterministic CLI for managing AI-development tools"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "H-Lupercal" }]
+keywords = ["ai", "developer-tools", "codex", "claude", "automation"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = [
+  "pathspec>=0.12,<1",
+  "pydantic>=2.8,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "cyclonedx-bom>=5",
+  "hatchling>=1.25",
+  "hypothesis>=6.100",
+  "pip-audit>=2.7",
+  "pyright>=1.1.380",
+  "pytest>=8",
+  "pytest-cov>=5",
+  "ruff>=0.6",
+  "twine>=5",
+]
+
+[project.scripts]
+toolbelt = "toolbelt.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/H-Lupercal/toolbelt"
+Documentation = "https://github.com/H-Lupercal/toolbelt#readme"
+Issues = "https://github.com/H-Lupercal/toolbelt/issues"
+Source = "https://github.com/H-Lupercal/toolbelt"
+
+[tool.hatch.version]
+path = "src/toolbelt/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/CHANGELOG.md",
+  "/CODE_OF_CONDUCT.md",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/README.md",
+  "/RELEASING.md",
+  "/SECURITY.md",
+  "/SUPPORT.md",
+  "/docs",
+  "/pyproject.toml",
+  "/src/toolbelt",
+  "/tests",
+  "/uv.lock",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/toolbelt"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/toolbelt/data/catalog.toml" = "toolbelt/data/catalog.toml"
+
+[tool.pyright]
+include = ["src/toolbelt"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "distribution: builds and installs release artifacts (requires package-index access)",
+  "slow: process and concurrency stress tests",
+]
+
+[tool.ruff]
+exclude = ["tests/fixtures"]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["src/toolbelt"]
+patch = ["subprocess"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true

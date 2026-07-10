@@ -1,0 +1,106 @@
+# Toolbelt v2 seed catalog. Commands are contract-tested and version-pinned.
+schema_version = 2
+
+[[tool]]
+schema_version = 2
+id = "mcp-filesystem"
+name = "Filesystem MCP"
+summary = "Repository-scoped filesystem access when the harness has no native equivalent"
+kind = "mcp_server"
+provenance = "npm:@modelcontextprotocol/server-filesystem@2026.7.4"
+version = "2026.7.4"
+homepage = "https://github.com/modelcontextprotocol/servers"
+license = "MIT"
+platforms = ["linux", "macos", "windows"]
+harnesses = ["codex"]
+permissions = ["network", "filesystem-read", "filesystem-write", "process-spawn"]
+install_scope = "user"
+artifacts = []
+required_env = []
+strong_evidence = ["infra:repository"]
+weak_evidence = []
+required_capabilities = ["codex"]
+suppressed_by_capabilities = ["filesystem"]
+live_name = "mcp-filesystem"
+install = { argv = ["codex", "mcp", "add", "filesystem", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem@2026.7.4", "."], requires_network = true }
+verify = { argv = ["codex", "mcp", "get", "filesystem"] }
+rollback = { argv = ["codex", "mcp", "remove", "filesystem"] }
+enabled = true
+
+[[tool]]
+schema_version = 2
+id = "mcp-git"
+name = "Git MCP"
+summary = "Repository history and diff access when the harness has no native Git capability"
+kind = "mcp_server"
+provenance = "pypi:mcp-server-git==2026.6.16"
+version = "2026.6.16"
+homepage = "https://github.com/modelcontextprotocol/servers"
+license = "MIT"
+platforms = ["linux", "macos", "windows"]
+harnesses = ["codex"]
+permissions = ["network", "filesystem-read", "filesystem-write", "process-spawn"]
+install_scope = "user"
+artifacts = []
+required_env = []
+strong_evidence = ["infra:git_repository"]
+weak_evidence = []
+required_capabilities = ["codex"]
+suppressed_by_capabilities = ["git"]
+live_name = "mcp-git"
+install = { argv = ["codex", "mcp", "add", "git", "--", "uvx", "--from", "mcp-server-git==2026.6.16", "mcp-server-git", "--repository", "."], requires_network = true }
+verify = { argv = ["codex", "mcp", "get", "git"] }
+rollback = { argv = ["codex", "mcp", "remove", "git"] }
+enabled = true
+
+[[tool]]
+schema_version = 2
+id = "pyright"
+name = "Pyright"
+summary = "Python type-aware navigation and diagnostics"
+kind = "lsp"
+provenance = "npm:pyright@1.1.411"
+version = "1.1.411"
+homepage = "https://github.com/microsoft/pyright"
+license = "MIT"
+platforms = ["linux", "macos", "windows"]
+harnesses = ["claude", "codex"]
+permissions = ["network", "filesystem-write", "process-spawn"]
+install_scope = "user"
+artifacts = []
+required_env = []
+strong_evidence = ["config:pyright"]
+weak_evidence = ["lang:python"]
+required_capabilities = []
+suppressed_by_capabilities = []
+live_name = "pyright"
+install = { argv = ["npm", "install", "--global", "pyright@1.1.411"], requires_network = true }
+verify = { argv = ["pyright", "--version"] }
+rollback = { argv = ["npm", "uninstall", "--global", "pyright"] }
+enabled = true
+
+[[tool]]
+schema_version = 2
+id = "ruff"
+name = "Ruff"
+summary = "Python linting and formatting"
+kind = "dev_tool"
+provenance = "pypi:ruff==0.15.21"
+version = "0.15.21"
+homepage = "https://docs.astral.sh/ruff/"
+license = "MIT"
+platforms = ["linux", "macos", "windows"]
+harnesses = ["claude", "codex"]
+permissions = ["network", "filesystem-write", "process-spawn"]
+install_scope = "user"
+artifacts = []
+required_env = []
+strong_evidence = ["test:pytest"]
+weak_evidence = ["lang:python"]
+required_capabilities = []
+suppressed_by_capabilities = []
+live_name = "ruff"
+install = { argv = ["python", "-m", "pip", "install", "ruff==0.15.21"], requires_network = true }
+verify = { argv = ["ruff", "--version"] }
+rollback = { argv = ["python", "-m", "pip", "uninstall", "-y", "ruff"] }
+enabled = true

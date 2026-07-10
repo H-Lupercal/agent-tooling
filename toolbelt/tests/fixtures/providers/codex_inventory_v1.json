@@ -1,0 +1,14 @@
+[
+  {
+    "name": "mcp-playwright",
+    "enabled": true,
+    "disabled_reason": null,
+    "transport": {"type": "stdio", "command": "npx", "args": ["playwright"]}
+  },
+  {
+    "name": "disabled-server",
+    "enabled": false,
+    "disabled_reason": "operator disabled",
+    "transport": {"type": "stdio", "command": "disabled"}
+  }
+]
