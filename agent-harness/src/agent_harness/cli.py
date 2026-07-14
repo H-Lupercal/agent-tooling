@@ -175,6 +175,13 @@ async def _resume(store_path: Path, run_id: str, fake: bool) -> None:
     if not isinstance(goal_value, str) or not goal_value:
         raise ValueError("run.started event does not contain a goal")
     config = load_config(_config_path())
+    if reconstructed.capacity is None or reconstructed.total_token_budget is None:
+        raise ValueError("run history lacks persisted policy metadata")
+    if (
+        reconstructed.capacity != config.capacity
+        or reconstructed.total_token_budget != config.total_token_budget
+    ):
+        raise ValueError("configuration drift from persisted run policy")
     if set(reconstructed.participant_states) != set(reconstructed.participants):
         raise ValueError("run history lacks persisted participant metadata")
     _validate_root_config(config, reconstructed.participants)

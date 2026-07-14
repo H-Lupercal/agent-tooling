@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -91,5 +92,38 @@ def test_slow_persistence_does_not_block_event_loop(tmp_path: Path) -> None:
         await asyncio.sleep(0.01)
         assert not publish.done()
         assert (await publish).sequence == 1
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_publish_delivers_persisted_sequence_order(tmp_path: Path) -> None:
+    class ReorderingStore(EventStore):
+        def __init__(self, path: Path) -> None:
+            super().__init__(path)
+            self._next = 0
+            self._counter_lock = threading.Lock()
+            self.first_entered = threading.Event()
+
+        def append(self, event: Event) -> Event:
+            with self._counter_lock:
+                self._next += 1
+                sequence = self._next
+            if sequence == 1:
+                self.first_entered.set()
+                time.sleep(0.05)
+            return replace(event, sequence=sequence)
+
+    async def scenario() -> None:
+        store = ReorderingStore(tmp_path / "reordered.db")
+        room = CollaborationRoom(store)
+        subscriber = room.subscribe("observer")
+        first = asyncio.create_task(room.publish(Event.example("run-order")))
+        while not store.first_entered.is_set():
+            await asyncio.sleep(0)
+        second = asyncio.create_task(room.publish(Event.example("run-order")))
+        await asyncio.gather(first, second)
+
+        delivered = [(await subscriber.get()).sequence for _ in range(2)]
+        assert delivered == [1, 2]
 
     asyncio.run(scenario())

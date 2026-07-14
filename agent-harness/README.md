@@ -32,10 +32,11 @@ agent-harness --store .harness-state resume RUN_ID --fake
 ```
 
 `resume` is only valid for an incomplete run. It restores the persisted roster, child
-lineage, selected child context, participant state, and consumed token budget; it does not
-add newly configured participants. Persisted root settings must still match the project
-configuration. Completed, failed, aborted, incomplete-metadata, and configuration-drift
-histories are refused with exit code 3.
+lineage, selected child context, participant state, original capacity policy, and original
+token budget with consumed allocations; it does not add newly configured participants or
+widen limits from a changed configuration. Persisted root and policy settings must still
+match the project configuration. Completed, failed, aborted, incomplete-metadata, and
+configuration-drift histories are refused with exit code 3.
 
 These commands and paths work on Linux, macOS, and Windows; shell syntax for creating or
 changing directories may vary. Python and SQLite provide the runtime portability.
@@ -54,7 +55,8 @@ count, spawn depth, simultaneous speakers, and token budget.
 ## Trust boundaries
 
 - The SQLite event store is the source of truth. Events are persisted before subscribers see
-  them, and portable receipts contain the same canonical events in sequence order.
+  them, concurrent publication is serialized through subscriber fan-out so delivery follows
+  canonical sequence order, and portable receipts contain the same events in that order.
 - Message events contain text an agent deliberately publishes to the room. Hidden chain of
   thought or provider-internal reasoning is neither requested nor stored.
 - Interruptions describe a reason and require evidence at urgent priority. The event log

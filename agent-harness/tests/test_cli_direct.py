@@ -39,6 +39,20 @@ def _append(
     )
 
 
+def _started_payload() -> dict[str, object]:
+    return {
+        "goal": "recover",
+        "capacity": {
+            "max_participants": 6,
+            "max_dynamic_children": 4,
+            "max_children_per_parent": 2,
+            "max_spawn_depth": 2,
+            "max_simultaneous_speakers": 2,
+        },
+        "total_token_budget": 12000,
+    }
+
+
 def test_direct_cli_covers_init_doctor_run_show_and_export(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -116,7 +130,7 @@ def test_direct_cli_covers_incomplete_and_terminal_resume(
     store_dir = tmp_path / "state"
     store = EventStore(store_dir / "events.db")
     run_id = "run-direct-resume"
-    _append(store, run_id, "run.started", "user", {"goal": "recover"})
+    _append(store, run_id, "run.started", "user", _started_payload())
     _append(
         store,
         run_id,

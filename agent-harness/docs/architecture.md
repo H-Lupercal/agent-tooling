@@ -29,7 +29,7 @@ User / CLI ---- goal ----> Run Controller ----> Child Admission
 | Component | Responsibility |
 | --- | --- |
 | Run Controller | Starts and resumes runs, limits simultaneous speakers, orders control receipts before completion, and coordinates adapters. |
-| Collaboration Room | Persists every event before delivering it to bounded subscriber queues. |
+| Collaboration Room | Serializes persist-and-fan-out transactions so every bounded subscriber queue observes canonical sequence order. |
 | Event Store | Transactionally assigns per-run sequence numbers and replays canonical event JSON from SQLite. |
 | Fake Adapter | Emits deterministic offline message streams and supports hard interruption for tests and demonstrations. |
 | Child Admission | Validates lineage, selected context, participant limits, spawn depth, and reserved token budgets before adding a child. |
@@ -48,9 +48,10 @@ User / CLI ---- goal ----> Run Controller ----> Child Admission
    explicitly selected context. Their execution task is tracked through completion; adapter
    failure persists a degradation event without deleting admission or lineage.
 5. A restarted process replays SQLite events to identify terminal participants, the exact
-   persisted roster and lineage, selected child context, and spent budget. Resume runs only
-   persisted nonterminal participants, rejects root configuration drift, and appends
-   `run.resumed` to the original history.
+   persisted roster and lineage, selected child context, original capacity policy, original
+   budget, and spent allocations. Resume runs only persisted nonterminal participants,
+   rejects root or policy configuration drift, and appends `run.resumed` to the original
+   history.
 6. Export writes all canonical events to a same-directory temporary file, flushes and syncs
    it, then atomically replaces the requested receipt path.
 

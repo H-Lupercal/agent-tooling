@@ -101,6 +101,20 @@ def _append_run_event(
     )
 
 
+def _started_payload(*, max_participants: int = 6) -> dict[str, object]:
+    return {
+        "goal": "recover",
+        "capacity": {
+            "max_participants": max_participants,
+            "max_dynamic_children": 4,
+            "max_children_per_parent": 2,
+            "max_spawn_depth": 2,
+            "max_simultaneous_speakers": 2,
+        },
+        "total_token_budget": 12000,
+    }
+
+
 def test_export_command_writes_canonical_receipt(tmp_path: Path) -> None:
     assert run_cli(tmp_path, "init").returncode == 0
     store_dir = tmp_path / "store"
@@ -152,7 +166,7 @@ def test_resume_launches_only_nonterminal_fake_participants(tmp_path: Path) -> N
     store_dir = tmp_path / "store"
     store = EventStore(store_dir / "events.db")
     run_id = "run-incomplete"
-    _append_run_event(store, run_id, "run.started", "user", {"goal": "recover"})
+    _append_run_event(store, run_id, "run.started", "user", _started_payload())
     _append_run_event(
         store,
         run_id,
@@ -203,7 +217,7 @@ def test_resume_does_not_add_configured_participant_absent_from_history(
     store_dir = tmp_path / "store"
     store = EventStore(store_dir / "events.db")
     run_id = "run-roster-bound"
-    _append_run_event(store, run_id, "run.started", "user", {"goal": "recover"})
+    _append_run_event(store, run_id, "run.started", "user", _started_payload())
     _append_run_event(
         store,
         run_id,
@@ -232,7 +246,7 @@ def test_resume_restores_nonterminal_admitted_child(tmp_path: Path) -> None:
     store_dir = tmp_path / "store"
     store = EventStore(store_dir / "events.db")
     run_id = "run-child-resume"
-    _append_run_event(store, run_id, "run.started", "user", {"goal": "recover"})
+    _append_run_event(store, run_id, "run.started", "user", _started_payload())
     _append_run_event(
         store,
         run_id,
@@ -279,7 +293,7 @@ def test_resume_rejects_persisted_root_configuration_drift(tmp_path: Path) -> No
     store_dir = tmp_path / "store"
     store = EventStore(store_dir / "events.db")
     run_id = "run-config-drift"
-    _append_run_event(store, run_id, "run.started", "user", {"goal": "recover"})
+    _append_run_event(store, run_id, "run.started", "user", _started_payload())
     _append_run_event(
         store,
         run_id,
@@ -299,3 +313,36 @@ def test_resume_rejects_persisted_root_configuration_drift(tmp_path: Path) -> No
 
     assert result.returncode == 3
     assert "configuration drift" in result.stderr
+
+
+def test_resume_rejects_persisted_capacity_policy_drift(tmp_path: Path) -> None:
+    assert run_cli(tmp_path, "init").returncode == 0
+    store_dir = tmp_path / "store"
+    store = EventStore(store_dir / "events.db")
+    run_id = "run-policy-drift"
+    _append_run_event(
+        store,
+        run_id,
+        "run.started",
+        "user",
+        _started_payload(max_participants=5),
+    )
+    _append_run_event(
+        store,
+        run_id,
+        "participant.joined",
+        "runtime",
+        {
+            "participant_id": "builder",
+            "adapter": "fake",
+            "model": "offline-builder",
+            "roles": ["builder"],
+            "context_limit": 8000,
+            "parent_id": None,
+        },
+    )
+
+    result = run_cli(tmp_path, "--store", str(store_dir), "resume", run_id, "--fake")
+
+    assert result.returncode == 3
+    assert "persisted run policy" in result.stderr

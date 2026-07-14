@@ -63,6 +63,7 @@ class RunController:
         if consumed_token_budget < 0 or consumed_token_budget > total_token_budget:
             raise ValueError("consumed token budget is outside the configured budget")
         self._remaining_token_budget = total_token_budget - consumed_token_budget
+        self._total_token_budget = total_token_budget
         self._child_adapter_factory = child_adapter_factory
         children = [
             participant
@@ -147,7 +148,21 @@ class RunController:
                     self._responding_count -= 1
 
     async def run(self, goal: str) -> None:
-        await self._publish("run.started", "user", {"goal": goal})
+        await self._publish(
+            "run.started",
+            "user",
+            {
+                "goal": goal,
+                "capacity": {
+                    "max_participants": self.capacity.max_participants,
+                    "max_dynamic_children": self.capacity.max_dynamic_children,
+                    "max_children_per_parent": self.capacity.max_children_per_parent,
+                    "max_spawn_depth": self.capacity.max_spawn_depth,
+                    "max_simultaneous_speakers": self.capacity.max_simultaneous_speakers,
+                },
+                "total_token_budget": self._total_token_budget,
+            },
+        )
         for participant_id in sorted(self.adapters):
             participant = self.adapters[participant_id].participant
             await self._publish(

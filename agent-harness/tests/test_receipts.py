@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_harness.models import Event
+from agent_harness.models import CapacityPolicy, Event
 from agent_harness.receipts import export_receipt, reconstruct_run
 from agent_harness.store import EventStore
 
@@ -67,7 +67,21 @@ def test_reconstruct_run_rejects_history_without_start() -> None:
 
 def test_reconstruct_run_restores_roster_lineage_context_and_spent_budget() -> None:
     events = [
-        replace(_event("run-1", "run.started", "user"), sequence=1),
+        replace(
+            _event("run-1", "run.started", "user"),
+            sequence=1,
+            payload={
+                "goal": "recover",
+                "capacity": {
+                    "max_participants": 4,
+                    "max_dynamic_children": 2,
+                    "max_children_per_parent": 1,
+                    "max_spawn_depth": 1,
+                    "max_simultaneous_speakers": 2,
+                },
+                "total_token_budget": 1000,
+            },
+        ),
         replace(
             _event("run-1", "participant.joined"),
             sequence=2,
@@ -102,6 +116,8 @@ def test_reconstruct_run_restores_roster_lineage_context_and_spent_budget() -> N
     assert child.parent_id == "builder"
     assert child.context == ("selected evidence",)
     assert reconstructed.consumed_token_budget == 300
+    assert reconstructed.capacity == CapacityPolicy(4, 2, 1, 1, 2)
+    assert reconstructed.total_token_budget == 1000
 
 
 def test_reconstruct_run_rejects_mixed_ids_sequences_and_invalid_child_budget() -> None:

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from agent_harness.models import Event, event_to_json
+from agent_harness.models import CapacityPolicy, Event, event_to_json
 from agent_harness.store import EventStore
 
 _TERMINAL_RUN_KINDS = {"run.completed", "run.failed", "run.aborted"}
@@ -35,6 +36,8 @@ class ReconstructedRun:
     participant_states: dict[str, str]
     participants: dict[str, ReconstructedParticipant]
     consumed_token_budget: int
+    capacity: CapacityPolicy | None
+    total_token_budget: int | None
     last_sequence: int
 
 
@@ -62,6 +65,7 @@ def reconstruct_run(events: list[Event]) -> ReconstructedRun:
     if not events or events[0].kind != "run.started":
         raise ValueError("run history does not begin with run.started")
     run_id = events[0].run_id
+    capacity, total_token_budget = _run_policy(events[0])
     states: dict[str, str] = {}
     participants: dict[str, ReconstructedParticipant] = {}
     consumed_token_budget = 0
@@ -101,7 +105,36 @@ def reconstruct_run(events: list[Event]) -> ReconstructedRun:
         states,
         participants,
         consumed_token_budget,
+        capacity,
+        total_token_budget,
         events[-1].sequence,
+    )
+
+
+def _run_policy(event: Event) -> tuple[CapacityPolicy | None, int | None]:
+    capacity_value = event.payload.get("capacity")
+    total_token_budget = event.payload.get("total_token_budget")
+    if capacity_value is None and total_token_budget is None:
+        return None, None
+    if not isinstance(capacity_value, Mapping) or type(total_token_budget) is not int:
+        raise ValueError("run.started contains invalid policy metadata")
+    capacity = cast(Mapping[object, object], capacity_value)
+
+    def integer(name: str) -> int:
+        value = capacity.get(name)
+        if type(value) is not int:
+            raise ValueError(f"run capacity {name} must be an integer")
+        return value
+
+    return (
+        CapacityPolicy(
+            integer("max_participants"),
+            integer("max_dynamic_children"),
+            integer("max_children_per_parent"),
+            integer("max_spawn_depth"),
+            integer("max_simultaneous_speakers"),
+        ),
+        total_token_budget,
     )
 
 

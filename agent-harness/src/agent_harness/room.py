@@ -15,6 +15,7 @@ class CollaborationRoom:
         self.store = store
         self.queue_size = queue_size
         self._subscribers: dict[str, asyncio.Queue[Event]] = {}
+        self._publish_lock = asyncio.Lock()
 
     def subscribe(self, participant_id: str) -> asyncio.Queue[Event]:
         if participant_id in self._subscribers:
@@ -24,7 +25,8 @@ class CollaborationRoom:
         return queue
 
     async def publish(self, event: Event) -> Event:
-        persisted = await asyncio.to_thread(self.store.append, event)
-        for participant_id in sorted(self._subscribers):
-            await self._subscribers[participant_id].put(persisted)
-        return persisted
+        async with self._publish_lock:
+            persisted = await asyncio.to_thread(self.store.append, event)
+            for participant_id in sorted(self._subscribers):
+                await self._subscribers[participant_id].put(persisted)
+            return persisted
