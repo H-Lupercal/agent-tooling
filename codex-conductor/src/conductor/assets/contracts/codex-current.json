@@ -3,7 +3,7 @@
   "contract_name": "codex-current",
   "provider": "codex",
   "cli_version_range": {
-    "minimum": "0.1.0",
+    "minimum": "0.144.0",
     "maximum_exclusive": "1.0.0"
   },
   "hook_events": [
@@ -70,11 +70,11 @@
   ],
   "model_selector_path": null,
   "correlation_fields": {
-    "run_id": ["thread_id"],
-    "caller_id": ["caller_id"],
-    "child_id": ["agent_id"],
+    "run_id": ["session_id", "thread_id"],
+    "caller_id": ["agent_id"],
+    "child_id": ["agent_id", "child_id", "thread_id"],
     "task_id": ["task_name"],
-    "lifecycle_id": ["tool_call_id", "event_id", "thread_id"]
+    "lifecycle_id": ["tool_use_id", "agent_id", "turn_id", "tool_call_id", "event_id", "thread_id"]
   },
   "usage_fields": [
     "input_tokens",
@@ -84,7 +84,7 @@
   ],
   "decision_response_schema": {
     "type": "object",
-    "required": ["decision", "reason"]
+    "required": ["hookSpecificOutput"]
   },
   "trust_visibility": true,
   "can_block": true

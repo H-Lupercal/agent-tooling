@@ -27,7 +27,7 @@ def _collector() -> tuple[list[tuple[str, str, str]], object]:
         (
             json.dumps({"_managed_by": "codex-conductor"}),
             False,
-            "hooks object is missing",
+            "file is not owned",
         ),
         (json.dumps({"hooks": []}), True, "hooks object is missing"),
     ],
@@ -62,7 +62,7 @@ def test_json_hook_validation_reports_missing_and_correlated_events(
     path.write_text(
         json.dumps(
             {
-                "_managed_by": "codex-conductor",
+                "description": "Managed by codex-conductor",
                 "hooks": {
                     "SessionStart": "not-a-list",
                     "PreToolUse": [None, {"hooks": [None, {}]}],

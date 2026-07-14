@@ -30,7 +30,7 @@ real routing decision. Conductor makes those states explicit:
 ## Requirements
 
 - Python 3.11–3.13;
-- Codex CLI 0.x and/or Claude Code 1.x–2.x with the hook events declared by the
+- Codex CLI 0.144.0–0.x and/or Claude Code 1.x–2.x with the hook events declared by the
   packaged capability contract;
 - Linux, macOS, or Windows.
 
@@ -66,12 +66,17 @@ bash uninstall.sh
 
 PowerShell users can run `./install.ps1` and `./uninstall.ps1`.
 
-Codex requires persisted trust for installed hook hashes. Review and approve the
-Conductor hooks in a trusted interactive session; do not use
+Codex requires persisted trust for installed hook hashes. Open `/hooks`, review,
+and approve the Conductor hooks in a trusted interactive session; do not use
 `--dangerously-bypass-hook-trust` as an installation shortcut. Configure real
 model prices, start a provider session, and then use `conductor doctor --strict`
 as the enforcement-readiness gate. A fresh install intentionally reports
 warnings for unverified prices and a not-yet-created run store.
+
+Installation refuses a Codex configuration that disables user hooks through
+`features.hooks = false`, the deprecated `features.codex_hooks = false`, or
+`allow_managed_hooks_only = true`. Conductor cannot enforce policy while those
+settings exclude `~/.codex/hooks.json`.
 
 ### Installer behavior
 

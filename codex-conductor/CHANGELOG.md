@@ -3,6 +3,21 @@
 All notable changes to codex-conductor are documented here. The format follows
 Keep a Changelog, and the project uses Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Generate Codex hook configuration with supported top-level metadata and
+  migrate legacy Conductor-owned hook files safely.
+- Accept current Codex `session_id`, `tool_use_id`, and `agent_id` lifecycle
+  fields, and exercise those fields in the installed-package end-to-end test.
+- Emit supported Codex `PreToolUse` permission decisions instead of the legacy
+  `decision: approve` shape that current Codex treats as a failed hook.
+- Refuse installation and fail doctor checks when Codex configuration disables
+  user hooks, instead of reporting an enforcement-ready installation.
+- Declare Codex CLI 0.144.0 as the minimum verified hook-compatible release and
+  align the packaged capability contract, fixtures, probe report, and README.
+
 ## [2.0.0] - 2026-07-09
 
 ### Added

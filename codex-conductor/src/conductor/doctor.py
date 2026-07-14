@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
@@ -18,6 +19,7 @@ from conductor.install import (
     MANIFEST_NAME,
     POLICY_END,
     POLICY_START,
+    _codex_user_hooks_disabled_reason,
     _file_sha256,
     _load_manifest,
     _validate_manifest_paths,
@@ -137,6 +139,7 @@ def run_checks(
             settings=True,
         )
     else:
+        _check_codex_hook_runtime(check, home / "config.toml")
         _check_json_hooks(
             check,
             home / "hooks.json",
@@ -274,9 +277,18 @@ def _check_json_hooks(
     if not isinstance(value, dict):
         check(name, "fail", "root must be a JSON object")
         return
-    if not settings and value.get("_managed_by") != "codex-conductor":
-        check(name, "fail", "file is not owned by codex-conductor")
-        return
+    if not settings:
+        if value.get("description") != "Managed by codex-conductor":
+            check(name, "fail", "file is not owned by codex-conductor")
+            return
+        unsupported = sorted(set(value) - {"description", "hooks"})
+        if unsupported:
+            check(
+                name,
+                "fail",
+                f"unsupported top-level fields: {', '.join(unsupported)}",
+            )
+            return
     hooks = value.get("hooks")
     if not isinstance(hooks, dict):
         check(name, "fail", "hooks object is missing")
@@ -291,6 +303,22 @@ def _check_json_hooks(
         if missing
         else "all correlated hooks present",
     )
+
+
+def _check_codex_hook_runtime(check, path: Path) -> None:
+    if not path.exists():
+        check("hook_runtime", "fail", f"Codex config is missing: {path}")
+        return
+    try:
+        value = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        check("hook_runtime", "fail", f"cannot read Codex hook settings: {exc}")
+        return
+    reason = _codex_user_hooks_disabled_reason(value)
+    if reason is not None:
+        check("hook_runtime", "fail", f"Codex config disables user hooks: {reason}")
+        return
+    check("hook_runtime", "ok", "user hooks are enabled")
 
 
 def _event_has_hook(value: object, hooks_dir: Path) -> bool:

@@ -48,6 +48,108 @@ def _environment(tmp_path: Path):
     )
 
 
+def test_codex_hook_config_uses_only_supported_top_level_fields(tmp_path: Path) -> None:
+    from conductor import doctor
+    from conductor.install import _render_hooks_json
+
+    hooks_dir = tmp_path / "hooks"
+    path = tmp_path / "hooks.json"
+    path.write_text(_render_hooks_json(hooks_dir), encoding="utf-8")
+    rendered = json.loads(path.read_text(encoding="utf-8"))
+    assert set(rendered) == {"description", "hooks"}
+    assert rendered["description"] == "Managed by codex-conductor"
+
+    rendered["_managed_by"] = "codex-conductor"
+    path.write_text(json.dumps(rendered), encoding="utf-8")
+    results: list[tuple[str, str, str]] = []
+    doctor._check_json_hooks(
+        lambda *result: results.append(result),
+        path,
+        hooks_dir,
+        expected=("SessionStart",),
+        settings=False,
+    )
+    assert results == [
+        ("hooks_json", "fail", "unsupported top-level fields: _managed_by")
+    ]
+
+
+def test_codex_provider_accepts_current_documented_hook_identifiers(
+    tmp_path: Path,
+) -> None:
+    from conductor.config import load_config
+    from conductor.providers.codex import PROVIDER
+
+    config = load_config(write_config(tmp_path / "conductor.toml", DEFAULT_CONFIG))
+    payload = {"session_id": "codex-session", "model": "gpt-5.5"}
+
+    assert PROVIDER.session_run_id(payload) == "codex-session"
+    caller = PROVIDER.resolve_caller(payload, config)
+    assert caller.run_id == "codex-session"
+    assert caller.thread_id == "codex-session"
+    link = PROVIDER.correlation_link(
+        {
+            "session_id": "codex-session",
+            "tool_use_id": "tool-use-1",
+            "tool_response": {"agent_id": "child-1"},
+        }
+    )
+    assert link is not None
+    assert (link.run_id, link.source_correlation, link.child_alias) == (
+        "codex-session",
+        "tool-use-1",
+        "child-1",
+    )
+
+
+def test_codex_provider_emits_current_pre_tool_use_decisions() -> None:
+    from conductor.providers.codex import PROVIDER
+
+    assert PROVIDER.emit_decision("approve", "allowed") == {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+    }
+    assert PROVIDER.emit_decision("block", "blocked safely") == {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": "blocked safely",
+        }
+    }
+
+
+def test_session_start_accepts_current_documented_codex_payload(
+    tmp_path: Path,
+) -> None:
+    from conductor.hooks.session_start import main as session_main
+    from conductor.store import Store
+
+    home, old = _environment(tmp_path)
+    try:
+        rc, response = _invoke(
+            session_main,
+            {
+                "session_id": "documented-session",
+                "cwd": str(tmp_path),
+                "hook_event_name": "SessionStart",
+                "source": "startup",
+                "model": "gpt-5.5",
+                "permission_mode": "default",
+            },
+        )
+        assert rc == 0 and response == {}
+        assert (
+            Store(home / "state" / "conductor.db")
+            .run_context("documented-session")
+            .thread_id
+            == "documented-session"
+        )
+    finally:
+        restore_env(old)
+
+
 def test_hook_entrypoints_initialize_deny_and_record_without_raising(
     tmp_path: Path,
 ) -> None:
@@ -70,7 +172,13 @@ def test_hook_entrypoints_initialize_deny_and_record_without_raising(
             pre_tool_main,
             {"tool_name": "shell", "tool_input": {"command": "true"}},
         )
-        assert other_rc == 0 and other["decision"] == "approve"
+        assert other_rc == 0
+        assert other == {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+            }
+        }
 
         envelope = (
             '<CONDUCTOR_TASK>{"schema_version":1,"task_name":"risk-task",'
@@ -87,8 +195,12 @@ def test_hook_entrypoints_initialize_deny_and_record_without_raising(
             },
         )
         assert governed_rc == 0
-        assert governed["decision"] == "approve"
-        assert "ALLOW" in governed["reason"]
+        assert governed == {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+            }
+        }
 
         start_rc, start = _invoke(
             lifecycle_main,
@@ -160,9 +272,12 @@ def test_active_pre_tool_hook_renews_an_expired_run_lease(tmp_path: Path) -> Non
             },
         )
 
-        assert "RUN_LEASE_EXPIRED" not in response["reason"]
-        assert response["decision"] == "approve"
-        assert "ALLOW" in response["reason"]
+        assert response == {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+            }
+        }
     finally:
         restore_env(old)
 

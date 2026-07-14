@@ -112,6 +112,71 @@ def test_install_writes_hash_manifest_and_post_tool_correlation_hook(
     assert "send_message" in post_matcher
 
 
+@pytest.mark.parametrize(
+    "config",
+    (
+        "[features]\nhooks = false\n",
+        "[features]\ncodex_hooks = false\n",
+        "allow_managed_hooks_only = true\n",
+    ),
+)
+def test_install_rejects_config_that_disables_user_hooks(
+    tmp_path: Path, config: str
+) -> None:
+    from conductor.install import install
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(config, encoding="utf-8")
+
+    with pytest.raises(InstallationConflictError, match="disables user hooks"):
+        install(codex_home=codex_home, agents_path=tmp_path / "AGENTS.md")
+
+    assert not (codex_home / "hooks.json").exists()
+
+
+@pytest.mark.parametrize(
+    "hooks",
+    (
+        {"nested": {"description": "Managed by codex-conductor"}},
+        {"nested": {"_managed_by": "codex-conductor"}},
+    ),
+)
+def test_install_does_not_accept_nested_hook_ownership_markers(
+    tmp_path: Path, hooks: dict[str, object]
+) -> None:
+    from conductor.install import install
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    original = json.dumps(hooks) + "\n"
+    hooks_path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(InstallationConflictError, match="foreign hooks file"):
+        install(codex_home=codex_home, agents_path=tmp_path / "AGENTS.md")
+
+    assert hooks_path.read_text(encoding="utf-8") == original
+
+
+def test_install_migrates_exact_legacy_hook_ownership_marker(tmp_path: Path) -> None:
+    from conductor.install import install
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    hooks_path = codex_home / "hooks.json"
+    hooks_path.write_text(
+        json.dumps({"_managed_by": "codex-conductor", "hooks": {}}),
+        encoding="utf-8",
+    )
+
+    install(codex_home=codex_home, agents_path=tmp_path / "AGENTS.md")
+
+    installed = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert installed["description"] == "Managed by codex-conductor"
+    assert "_managed_by" not in installed
+
+
 def test_install_rejects_symlink_targets_without_touching_the_victim(
     tmp_path: Path,
 ) -> None:

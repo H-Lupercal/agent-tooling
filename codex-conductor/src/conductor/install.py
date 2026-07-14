@@ -9,6 +9,7 @@ import os
 import shlex
 import sys
 import tempfile
+import tomllib
 import uuid
 from importlib.resources import files
 from pathlib import Path
@@ -326,6 +327,13 @@ def _refuse_conflicts(codex_home: Path, agents_path: Path) -> None:
         _assert_safe_path(path)
     if config.exists():
         text = config.read_text(encoding="utf-8")
+        try:
+            config_value = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            raise ManagedBlockError(f"invalid Codex config {config}: {exc}") from exc
+        disabled_reason = _codex_user_hooks_disabled_reason(config_value)
+        if disabled_reason is not None:
+            raise ManagedBlockError(f"{config} disables user hooks: {disabled_reason}")
         unmanaged = _strip_block(text, CONFIG_START, CONFIG_END)
         if (
             "[agents]" in unmanaged
@@ -335,12 +343,35 @@ def _refuse_conflicts(codex_home: Path, agents_path: Path) -> None:
             raise ManagedBlockError(
                 f"unmanaged agents/hooks/rollout_budget table in {config}"
             )
-    if hooks.exists() and '"_managed_by": "codex-conductor"' not in hooks.read_text(
-        encoding="utf-8"
-    ):
-        raise ManagedBlockError(f"foreign hooks file {hooks}")
+    if hooks.exists():
+        hooks_text = hooks.read_text(encoding="utf-8")
+        try:
+            hooks_value = json.loads(hooks_text)
+        except json.JSONDecodeError as exc:
+            raise ManagedBlockError(f"invalid Codex hooks file {hooks}: {exc}") from exc
+        owned = isinstance(hooks_value, dict) and (
+            hooks_value.get("description") == "Managed by codex-conductor"
+            or hooks_value.get("_managed_by") == "codex-conductor"
+        )
+        if not owned:
+            raise ManagedBlockError(f"foreign hooks file {hooks}")
     if agents_path.exists():
         _strip_block(agents_path.read_text(encoding="utf-8"), POLICY_START, POLICY_END)
+
+
+def _codex_user_hooks_disabled_reason(config: object) -> str | None:
+    if not isinstance(config, dict):
+        return None
+    if config.get("allow_managed_hooks_only") is True:
+        return "allow_managed_hooks_only = true skips ~/.codex/hooks.json"
+    features = config.get("features")
+    if not isinstance(features, dict):
+        return None
+    if features.get("hooks") is False:
+        return "features.hooks = false"
+    if "hooks" not in features and features.get("codex_hooks") is False:
+        return "features.codex_hooks = false"
+    return None
 
 
 def _hook_command(script: Path, *args: str) -> str:
@@ -357,7 +388,7 @@ def _render_hooks_json(hooks_dir: Path) -> str:
         return _hook_command(hooks_dir / f"{module}.py")
 
     data = {
-        "_managed_by": "codex-conductor",
+        "description": "Managed by codex-conductor",
         "hooks": {
             "SessionStart": [
                 {

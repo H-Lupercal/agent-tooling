@@ -27,10 +27,29 @@ class CodexProvider(Provider):
         return normalize_tool_request(payload, {})
 
     def resolve_caller(self, payload: dict, ladder: Ladder) -> Caller:
-        return resolve_caller(payload, ladder, _sessions_root())
+        normalized = dict(payload)
+        session_id = _first_string(payload, ("session_id",))
+        if session_id is not None:
+            normalized.setdefault("root_thread_id", session_id)
+            if not (
+                payload.get("transcript_path") or payload.get("agent_transcript_path")
+            ):
+                normalized.setdefault(
+                    "thread_id",
+                    _first_string(payload, ("agent_id",)) or session_id,
+                )
+        return resolve_caller(normalized, ladder, _sessions_root())
 
     def emit_decision(self, decision: str, reason: str) -> dict:
-        return {"decision": decision, "reason": reason}
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow" if decision == "approve" else "deny",
+            }
+        }
+        if decision != "approve":
+            output["hookSpecificOutput"]["permissionDecisionReason"] = reason
+        return output
 
     def handle_lifecycle(self, payload: dict) -> None:
         # Codex records both SubagentStart and SubagentStop natively.
@@ -57,8 +76,13 @@ class CodexProvider(Provider):
         )
 
     def correlation_link(self, payload: dict) -> CorrelationLink | None:
-        run_id = _first_string(payload, ("root_thread_id", "run_id", "thread_id"))
-        source = _first_string(payload, ("tool_call_id", "correlation_id", "event_id"))
+        run_id = _first_string(
+            payload, ("session_id", "root_thread_id", "run_id", "thread_id")
+        )
+        source = _first_string(
+            payload,
+            ("tool_use_id", "tool_call_id", "correlation_id", "event_id"),
+        )
         child = _child_id(payload)
         if run_id is None or source is None or child is None:
             return None
@@ -71,12 +95,10 @@ class CodexProvider(Provider):
         return CorrelationLink(run_id, source, child, event)
 
     def session_run_id(self, payload: dict) -> str | None:
-        value = (
-            payload.get("root_thread_id")
-            or payload.get("thread_id")
-            or payload.get("run_id")
+        return _first_string(
+            payload,
+            ("session_id", "root_thread_id", "thread_id", "run_id"),
         )
-        return str(value) if value else None
 
 
 PROVIDER = CodexProvider()

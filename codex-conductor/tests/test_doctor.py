@@ -36,6 +36,29 @@ class DoctorTests(unittest.TestCase):
             self.assertFalse(report["ok"])
             self.assertEqual(statuses["hooks_json"], "fail")
 
+    def test_codex_disabled_user_hooks_are_a_hard_failure(self):
+        from conductor.doctor import run_checks
+        from conductor.install import install
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            codex_home = root / ".codex"
+            agents = root / "AGENTS.md"
+            install(codex_home=codex_home, agents_path=agents)
+            config = codex_home / "config.toml"
+            config.write_text(
+                "allow_managed_hooks_only = true\n"
+                + config.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            report = run_checks("codex", home=codex_home, policy_path=agents)
+            checks = {item["name"]: item for item in report["checks"]}
+
+            self.assertFalse(report["ok"])
+            self.assertEqual(checks["hook_runtime"]["status"], "fail")
+            self.assertIn("disables user hooks", checks["hook_runtime"]["detail"])
+
     def test_claude_all_pass_after_install(self):
         from conductor.doctor import run_checks
         from conductor.install import install

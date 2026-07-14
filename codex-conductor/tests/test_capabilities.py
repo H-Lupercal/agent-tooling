@@ -27,6 +27,18 @@ def test_current_codex_contract_selects_admission_without_model_field() -> None:
     assert "model" not in spawn.input_schema["properties"]
 
 
+def test_current_codex_contract_declares_current_hook_wire_fields() -> None:
+    from conductor.capabilities import load_contract
+
+    contract = load_contract("codex-current")
+
+    assert contract.cli_version_range.minimum == "0.144.0"
+    assert contract.correlation_fields.run_id[0] == "session_id"
+    assert "tool_use_id" in contract.correlation_fields.lifecycle_id
+    assert "agent_id" in contract.correlation_fields.child_id
+    assert contract.decision_response_schema["required"] == ["hookSpecificOutput"]
+
+
 def test_payload_field_absent_from_checked_contract_is_not_assumed() -> None:
     from conductor.capabilities import load_contract, negotiate
 
