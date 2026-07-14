@@ -110,9 +110,7 @@ class Event:
 
 def event_to_json(event: Event) -> str:
     value = cast(dict[str, object], asdict(event))
-    value["occurred_at"] = (
-        event.occurred_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
-    )
+    value["occurred_at"] = event.occurred_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
     return json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
 
 
@@ -127,9 +125,7 @@ def event_from_json(raw: str) -> Event:
         occurred_at=occurred_at,
         actor=str(value["actor"]),
         kind=str(value["kind"]),
-        causation_id=(
-            None if value["causation_id"] is None else str(value["causation_id"])
-        ),
+        causation_id=(None if value["causation_id"] is None else str(value["causation_id"])),
         correlation_id=str(value["correlation_id"]),
         payload=payload,
     )

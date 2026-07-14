@@ -1,6 +1,6 @@
 # Agent Tooling
 
-Agent Tooling is a Python monorepo containing three independently versioned command-line
+Agent Tooling is a Python monorepo containing four independently versioned command-line
 tools for professional AI-assisted development.
 
 | Project | Package | Purpose |
@@ -8,6 +8,7 @@ tools for professional AI-assisted development.
 | [Toolbelt](toolbelt/) | `toolbelt-ai` | Deterministically discovers, plans, installs, and reconciles AI-development tools. |
 | [Codex Conductor](codex-conductor/) | `codex-conductor` | Enforces cost-aware subagent admission, routing, lifecycle accounting, and installation policy for Codex and Claude Code. |
 | [Install Rehearsal](install-rehearsal/) | `install-rehearsal` | Observes trusted installer effects in a disposable redirected user profile. |
+| [Agent Harness](agent-harness/) | `agent-harness` | Coordinates a durable, interruptible conversation among a configurable roster of AI agents. |
 
 All projects require Python 3.11 or newer, ship typed wheels, use locked development
 environments, and include detailed documentation.
@@ -18,6 +19,7 @@ environments, and include detailed documentation.
 pipx install toolbelt-ai
 python -m pip install codex-conductor
 python -m pip install ./install-rehearsal
+python -m pip install ./agent-harness
 ```
 
 Package-specific setup and trust-boundary guidance is in each project README:
@@ -25,6 +27,7 @@ Package-specific setup and trust-boundary guidance is in each project README:
 - [Toolbelt quick start](toolbelt/README.md)
 - [Codex Conductor quick start](codex-conductor/README.md)
 - [Install Rehearsal quick start](install-rehearsal/README.md)
+- [Agent Harness quick start](agent-harness/README.md)
 
 ## Develop
 
@@ -46,6 +49,11 @@ make dist-test PYTHON=.venv/bin/python
 make e2e PYTHON=.venv/bin/python
 
 cd ../install-rehearsal
+uv sync --extra dev --locked
+make check PYTHON=.venv/bin/python
+make build PYTHON=.venv/bin/python
+
+cd ../agent-harness
 uv sync --extra dev --locked
 make check PYTHON=.venv/bin/python
 make build PYTHON=.venv/bin/python
@@ -77,5 +85,7 @@ See [Toolbelt releasing](toolbelt/RELEASING.md) and
 - [Security](SECURITY.md)
 - [Support](SUPPORT.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
-- [MIT license](LICENSE); package copies: [Toolbelt](toolbelt/LICENSE) and
-  [Codex Conductor](codex-conductor/LICENSE)
+- [MIT license](LICENSE); package copies: [Toolbelt](toolbelt/LICENSE),
+  [Codex Conductor](codex-conductor/LICENSE),
+  [Install Rehearsal](install-rehearsal/LICENSE), and
+  [Agent Harness](agent-harness/LICENSE)

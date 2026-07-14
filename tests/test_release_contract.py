@@ -11,7 +11,8 @@ from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECTS = ("toolbelt", "codex-conductor")
+PROJECTS = ("toolbelt", "codex-conductor", "install-rehearsal", "agent-harness")
+PUBLISHED_PROJECTS = ("toolbelt", "codex-conductor")
 REPOSITORY_URL = "https://github.com/H-Lupercal/agent-tooling"
 SHA_PIN = re.compile(r"^[0-9a-f]{40}$")
 MARKDOWN_LINK = re.compile(r"\[[^]]+\]\((?P<target><[^>]+>|[^\s)]+)")
@@ -54,6 +55,15 @@ def test_root_release_and_governance_files_exist() -> None:
     }
     missing = sorted(path for path in required if not (ROOT / path).is_file())
     assert not missing, f"missing root release files: {missing}"
+
+
+def test_each_project_is_documented_and_owns_core_package_files() -> None:
+    root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    required = ("pyproject.toml", "README.md", "LICENSE", "Makefile")
+    for project in PROJECTS:
+        assert f"[{project.replace('-', ' ').title()}]({project}/)" in root_readme
+        missing = [name for name in required if not (ROOT / project / name).is_file()]
+        assert not missing, f"{project} is missing package files: {missing}"
 
 
 def test_github_metadata_is_owned_only_by_monorepo_root() -> None:
@@ -163,7 +173,7 @@ def test_release_workflows_isolate_pypi_distributions_from_metadata() -> None:
 
 def test_ci_targets_both_project_directories_and_unique_artifacts() -> None:
     text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    for project in PROJECTS:
+    for project in PUBLISHED_PROJECTS:
         assert project in text
     assert "${{ matrix.project }}/uv.lock" in text
     assert "codex-conductor/uv.lock" in text
@@ -190,7 +200,7 @@ def test_clean_environment_installs_do_not_depend_on_uv_cache_state() -> None:
     e2e = (conductor / "tests" / "e2e_smoke.sh").read_text(encoding="utf-8")
     makefiles = [
         (ROOT / project / "Makefile").read_text(encoding="utf-8")
-        for project in PROJECTS
+        for project in PUBLISHED_PROJECTS
     ]
     for text in (distribution_test, e2e, *makefiles):
         assert "pip install --offline" not in text
@@ -216,7 +226,7 @@ def test_local_release_gates_cover_artifacts_e2e_audit_and_sbom() -> None:
         "pip_audit",
         "cyclonedx_py",
     )
-    for project in PROJECTS:
+    for project in PUBLISHED_PROJECTS:
         makefile = (ROOT / project / "Makefile").read_text(encoding="utf-8")
         for command in required:
             assert command in makefile, f"{project} release gate is missing {command}"
@@ -232,7 +242,7 @@ def test_sbom_finalizers_stamp_the_installed_distribution_version(
     tmp_path: Path,
 ) -> None:
     expected = importlib.metadata.version("codex-conductor")
-    for project in PROJECTS:
+    for project in PUBLISHED_PROJECTS:
         sbom = tmp_path / f"{project}.cdx.json"
         sbom.write_text(
             json.dumps(

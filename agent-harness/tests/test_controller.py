@@ -116,10 +116,7 @@ def test_run_completion_waits_for_interrupt_receipt(tmp_path: Path) -> None:
         )
         await run
 
-        kinds = [
-            event.kind
-            for event in controller.room.store.replay("run-ordered-interrupt")
-        ]
+        kinds = [event.kind for event in controller.room.store.replay("run-ordered-interrupt")]
         assert kinds[-2:] == ["interrupt.applied", "run.completed"]
 
     asyncio.run(scenario())
@@ -169,9 +166,7 @@ def test_child_joins_with_independent_context_and_lineage(tmp_path: Path) -> Non
 
         assert child.parent_id == "builder"
         assert child.participant_id == "builder/test-specialist-1"
-        assert controller.context_for(child.participant_id) == (
-            "requirement: reject empty input",
-        )
+        assert controller.context_for(child.participant_id) == ("requirement: reject empty input",)
 
     asyncio.run(scenario())
 

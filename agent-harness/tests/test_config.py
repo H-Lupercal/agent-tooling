@@ -110,4 +110,3 @@ credential_env = "SPECIALIST_API_KEY"
     parsed = load_config(config)
 
     assert parsed.credential_env == {"api-agent": "SPECIALIST_API_KEY"}
-

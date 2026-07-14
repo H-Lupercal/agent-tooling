@@ -175,10 +175,8 @@ def test_resume_launches_only_nonterminal_fake_participants(tmp_path: Path) -> N
     assert "run.resumed" in result.stdout
     resumed_events = store.replay(run_id)[4:]
     assert any(
-        event.kind == "message.completed" and event.actor == "reviewer"
-        for event in resumed_events
+        event.kind == "message.completed" and event.actor == "reviewer" for event in resumed_events
     )
     assert not any(
-        event.kind == "message.completed" and event.actor == "builder"
-        for event in resumed_events
+        event.kind == "message.completed" and event.actor == "builder" for event in resumed_events
     )

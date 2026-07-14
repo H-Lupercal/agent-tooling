@@ -24,9 +24,7 @@ class HarnessConfig:
     credential_env: Mapping[str, str]
 
 
-def _reject_unknown_keys(
-    value: Mapping[str, object], allowed: set[str], label: str
-) -> None:
+def _reject_unknown_keys(value: Mapping[str, object], allowed: set[str], label: str) -> None:
     unknown = sorted(set(value) - allowed)
     if unknown:
         raise ValueError(f"unknown {label} key: {unknown[0]}")
@@ -113,18 +111,14 @@ def _parse_capacity(value: object) -> CapacityPolicy:
     if missing:
         raise ValueError(f"missing capacity key: {missing[0]}")
     return CapacityPolicy(
-        max_participants=_positive_integer(
-            capacity["max_participants"], "participant capacity"
-        ),
+        max_participants=_positive_integer(capacity["max_participants"], "participant capacity"),
         max_dynamic_children=_nonnegative_integer(
             capacity["max_dynamic_children"], "dynamic child capacity"
         ),
         max_children_per_parent=_nonnegative_integer(
             capacity["max_children_per_parent"], "children-per-parent capacity"
         ),
-        max_spawn_depth=_nonnegative_integer(
-            capacity["max_spawn_depth"], "spawn depth"
-        ),
+        max_spawn_depth=_nonnegative_integer(capacity["max_spawn_depth"], "spawn depth"),
         max_simultaneous_speakers=_positive_integer(
             capacity["max_simultaneous_speakers"], "simultaneous speaker capacity"
         ),

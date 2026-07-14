@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from agent_harness.models import Event
 from agent_harness.room import CollaborationRoom
 from agent_harness.store import EventStore
@@ -37,3 +39,14 @@ def test_slow_consumer_applies_backpressure(tmp_path: Path) -> None:
         assert persisted.sequence == 2
 
     asyncio.run(scenario())
+
+
+def test_room_rejects_invalid_queue_and_duplicate_subscriber(tmp_path: Path) -> None:
+    store = EventStore(tmp_path / "events.db")
+    with pytest.raises(ValueError, match="queue size"):
+        CollaborationRoom(store, queue_size=0)
+
+    room = CollaborationRoom(store)
+    room.subscribe("same")
+    with pytest.raises(ValueError, match="duplicate subscriber"):
+        room.subscribe("same")

@@ -24,7 +24,8 @@ class CollaborationRoom:
         return queue
 
     async def publish(self, event: Event) -> Event:
-        persisted = await asyncio.to_thread(self.store.append, event)
+        persisted = self.store.append(event)
+        await asyncio.sleep(0)
         for participant_id in sorted(self._subscribers):
             await self._subscribers[participant_id].put(persisted)
         return persisted

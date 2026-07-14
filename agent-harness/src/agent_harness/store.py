@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,7 +23,7 @@ class EventStore:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -58,7 +59,7 @@ class EventStore:
             connection.close()
 
     def replay(self, run_id: str) -> list[Event]:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
                 "SELECT event_json FROM events WHERE run_id = ? ORDER BY sequence",
                 (run_id,),

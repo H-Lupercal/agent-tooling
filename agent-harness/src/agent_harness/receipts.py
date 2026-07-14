@@ -67,4 +67,3 @@ def reconstruct_run(events: list[Event]) -> ReconstructedRun:
         elif event.actor in states and event.kind in _TERMINAL_PARTICIPANT_KINDS:
             states[event.actor] = "terminal"
     return ReconstructedRun(run_id, terminal, states, events[-1].sequence)
-
