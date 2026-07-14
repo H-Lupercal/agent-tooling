@@ -12,6 +12,7 @@ from agent_harness.adapters.fake import FakeAdapter
 from agent_harness.config import HarnessConfig, load_config
 from agent_harness.controller import RunController
 from agent_harness.models import event_to_json
+from agent_harness.receipts import export_receipt, reconstruct_run
 from agent_harness.room import CollaborationRoom
 from agent_harness.store import EventStore
 
@@ -56,6 +57,16 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--fake", action="store_true", help="use deterministic offline participants")
     show = commands.add_parser("show", help="show persisted events")
     show.add_argument("run_id")
+    export = commands.add_parser("export", help="export a portable JSONL receipt")
+    export.add_argument("run_id")
+    export.add_argument("output", type=Path)
+    resume = commands.add_parser("resume", help="resume a nonterminal collaboration run")
+    resume.add_argument("run_id")
+    resume.add_argument(
+        "--fake",
+        action="store_true",
+        help="use deterministic offline participants",
+    )
     return parser
 
 
@@ -109,6 +120,42 @@ async def _run(store_path: Path, goal: str, fake: bool) -> None:
         print(event.kind)
 
 
+async def _resume(store_path: Path, run_id: str, fake: bool) -> None:
+    if not fake:
+        raise ValueError("live providers are not implemented; pass --fake")
+    store = EventStore(store_path / "events.db")
+    events = store.replay(run_id)
+    reconstructed = reconstruct_run(events)
+    if reconstructed.terminal:
+        terminal_kind = next(
+            event.kind for event in reversed(events) if event.kind.startswith("run.")
+        )
+        terminal_label = terminal_kind.removeprefix("run.")
+        raise ValueError(f"run is already {terminal_label}")
+    goal_value = events[0].payload.get("goal")
+    if not isinstance(goal_value, str) or not goal_value:
+        raise ValueError("run.started event does not contain a goal")
+    config = load_config(_config_path())
+    adapters = {
+        participant_id: adapter
+        for participant_id, adapter in _fake_adapters(config).items()
+        if reconstructed.participant_states.get(participant_id) != "terminal"
+    }
+    controller = RunController(
+        run_id=run_id,
+        adapters=adapters,
+        room=CollaborationRoom(store, queue_size=config.queue_size),
+        max_simultaneous_speakers=config.capacity.max_simultaneous_speakers,
+        capacity=config.capacity,
+        total_token_budget=config.total_token_budget,
+    )
+    await controller.resume(goal_value)
+    print(f"run_id={run_id}")
+    for event in store.replay(run_id):
+        if event.sequence > reconstructed.last_sequence:
+            print(event.kind)
+
+
 def _show(store_path: Path, run_id: str) -> None:
     store = EventStore(store_path / "events.db")
     events = store.replay(run_id)
@@ -129,6 +176,15 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(_run(arguments.store, arguments.goal, arguments.fake))
         elif arguments.command == "show":
             _show(arguments.store, arguments.run_id)
+        elif arguments.command == "export":
+            export_receipt(
+                EventStore(arguments.store / "events.db"),
+                arguments.run_id,
+                arguments.output,
+            )
+            print(f"exported {arguments.run_id} to {arguments.output}")
+        elif arguments.command == "resume":
+            asyncio.run(_resume(arguments.store, arguments.run_id, arguments.fake))
         else:
             raise AssertionError(f"unhandled command: {arguments.command}")
     except (OSError, RuntimeError, ValueError) as exc:

@@ -112,6 +112,14 @@ class RunController:
         async with self._control_operation:
             await self._publish("run.completed", "runtime", {})
 
+    async def resume(self, goal: str) -> None:
+        await self._publish("run.resumed", "runtime", {"goal": goal})
+        await asyncio.gather(
+            *(self._respond(participant_id, goal) for participant_id in sorted(self.adapters))
+        )
+        async with self._control_operation:
+            await self._publish("run.completed", "runtime", {})
+
     async def wait_until_responding(self, count: int, timeout: float = 2.0) -> None:
         async with asyncio.timeout(timeout):
             while self._responding_count < count:
