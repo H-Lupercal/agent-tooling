@@ -73,7 +73,7 @@ README.md                           list the new package and development command
 - Create: `agent-harness/src/agent_harness/py.typed`
 - Create: `agent-harness/tests/test_package.py`
 
-- [ ] **Step 1: Create the package metadata and empty import surface**
+- [ ] **Step 1: Create package metadata and non-runtime support files**
 
 ```toml
 # agent-harness/pyproject.toml
@@ -134,6 +134,37 @@ venvPath = "."
 venv = ".venv"
 ```
 
+```markdown
+<!-- agent-harness/README.md -->
+# Agent Harness
+
+Agent Harness is a local-first, provider-independent collaboration runtime for coding
+agents. The foundation release runs deterministic fake participants while live provider
+and coding-CLI adapters are developed behind the same protocol.
+```
+
+Copy the repository MIT license to `agent-harness/LICENSE`. Create the package and test
+directories, but do not create the Python import surface yet.
+
+- [ ] **Step 2: Write the package smoke test**
+
+```python
+# agent-harness/tests/test_package.py
+from agent_harness import __version__
+
+
+def test_package_version_is_initial_release() -> None:
+    assert __version__ == "0.1.0"
+```
+
+- [ ] **Step 3: Run the smoke test to verify the red state**
+
+Run: `cd agent-harness && PYTHONPATH=src python -m pytest tests/test_package.py -q`
+
+Expected: FAIL with `ModuleNotFoundError: No module named 'agent_harness'`.
+
+- [ ] **Step 4: Implement the import surface, lock dependencies, and reach green**
+
 ```python
 # agent-harness/src/agent_harness/__init__.py
 """Live collaboration runtime for heterogeneous coding agents."""
@@ -148,36 +179,11 @@ from agent_harness.cli import main
 raise SystemExit(main())
 ```
 
-```markdown
-<!-- agent-harness/README.md -->
-# Agent Harness
+Create `py.typed` as an empty marker file, then run:
 
-Agent Harness is a local-first, provider-independent collaboration runtime for coding
-agents. The foundation release runs deterministic fake participants while live provider
-and coding-CLI adapters are developed behind the same protocol.
-```
-
-Copy the repository MIT license to `agent-harness/LICENSE`. Create `py.typed` as an empty
-marker file. Create the package directories before running uv.
-
-- [ ] **Step 2: Write the package smoke test**
-
-```python
-# agent-harness/tests/test_package.py
-from agent_harness import __version__
-
-
-def test_package_version_is_initial_release() -> None:
-    assert __version__ == "0.1.0"
-```
-
-- [ ] **Step 3: Lock and install the development environment**
-
-Run: `cd agent-harness && uv lock && uv sync --extra dev --locked`
+`cd agent-harness && uv lock && uv sync --extra dev --locked`
 
 Expected: `uv.lock` exists and the editable package plus development dependencies install successfully.
-
-- [ ] **Step 4: Run the smoke test**
 
 Run: `cd agent-harness && .venv/bin/python -m pytest tests/test_package.py -q`
 
