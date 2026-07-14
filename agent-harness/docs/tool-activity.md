@@ -13,7 +13,7 @@ recorded only when they were actually run, with machine-readable counterparts in
 | Toolbelt | Package scan | `toolbelt scan --path agent-harness --json` | Scanned 33 files (218,163 bytes), with no warnings or writes. |
 | Toolbelt | Package capability discovery | `toolbelt discover --path agent-harness --json` | Detected unmanaged Ruff and Pyright plus the Codex-native filesystem and Git capabilities; changed no declarations. |
 | Toolbelt | Package readiness | `toolbelt doctor --path agent-harness --json` | Ready with zero errors and the expected warning that no v2 declaration exists. |
-| Conductor | Final run report | `PYTHONPATH=codex-conductor/src codex-conductor/.venv/bin/python -m conductor.report --last` | Run `019f5538-c3c6-7021-b0dd-87e383790d8f`: admission mode, 2 unknown-tier reservations completed, pricing unverified, measured and estimated cost $0, savings unavailable outside routing mode. |
+| Conductor | Final run report | `PYTHONPATH=codex-conductor/src codex-conductor/.venv/bin/python -m conductor.report --last` | Run `019f5538-c3c6-7021-b0dd-87e383790d8f`: admission mode, 3 unknown-tier reservations completed, pricing unverified, measured and estimated cost $0, savings unavailable outside routing mode. |
 
 No code authorship attributed to Toolbelt or Conductor.
 
