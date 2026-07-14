@@ -39,7 +39,13 @@ class FakeAdapter:
                 yield Emission("message.interrupted", "")
                 return
             for chunk in script:
+                if self._interrupted:
+                    yield Emission("message.interrupted", "")
+                    return
                 yield Emission("message.delta", chunk)
+            if self._interrupted:
+                yield Emission("message.interrupted", "")
+                return
             yield Emission("message.completed", "")
         finally:
             self._active = False

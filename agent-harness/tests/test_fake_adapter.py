@@ -52,3 +52,19 @@ def test_fake_adapter_rejects_exhausted_script_and_inactive_interrupt() -> None:
         assert await adapter.interrupt("too late") is False
 
     asyncio.run(scenario())
+
+
+def test_fake_adapter_stops_after_midstream_hard_interrupt() -> None:
+    async def scenario() -> None:
+        adapter = FakeAdapter(_participant(), scripts=(("one", "two", "three"),))
+        response = adapter.respond("goal")
+
+        assert (await anext(response)).kind == "message.started"
+        first_delta = await anext(response)
+        assert (first_delta.kind, first_delta.content) == ("message.delta", "one")
+        assert await adapter.interrupt("new evidence") is True
+
+        remaining = [item async for item in response]
+        assert [item.kind for item in remaining] == ["message.interrupted"]
+
+    asyncio.run(scenario())

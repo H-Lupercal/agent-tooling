@@ -63,3 +63,61 @@ def test_reconstruct_run_tracks_terminal_participants() -> None:
 def test_reconstruct_run_rejects_history_without_start() -> None:
     with pytest.raises(ValueError, match="does not begin"):
         reconstruct_run([_event("run-1", "run.completed")])
+
+
+def test_reconstruct_run_restores_roster_lineage_context_and_spent_budget() -> None:
+    events = [
+        replace(_event("run-1", "run.started", "user"), sequence=1),
+        replace(
+            _event("run-1", "participant.joined"),
+            sequence=2,
+            payload={
+                "participant_id": "builder",
+                "adapter": "fake",
+                "model": "offline-builder",
+                "roles": ["builder"],
+                "context_limit": 8000,
+                "parent_id": None,
+            },
+        ),
+        replace(
+            _event("run-1", "participant.admitted"),
+            sequence=3,
+            payload={
+                "participant_id": "builder/tester-1",
+                "adapter": "fake",
+                "model": "offline-builder",
+                "roles": ["tester"],
+                "context_limit": 8000,
+                "parent_id": "builder",
+                "context": ["selected evidence"],
+                "token_budget": 300,
+            },
+        ),
+    ]
+
+    reconstructed = reconstruct_run(events)
+
+    child = reconstructed.participants["builder/tester-1"]
+    assert child.parent_id == "builder"
+    assert child.context == ("selected evidence",)
+    assert reconstructed.consumed_token_budget == 300
+
+
+def test_reconstruct_run_rejects_mixed_ids_sequences_and_invalid_child_budget() -> None:
+    started = replace(_event("run-1", "run.started", "user"), sequence=1)
+    with pytest.raises(ValueError, match="multiple run IDs"):
+        reconstruct_run([started, replace(_event("run-2", "run.completed"), sequence=2)])
+    with pytest.raises(ValueError, match="strictly increasing"):
+        reconstruct_run([started, replace(_event("run-1", "run.completed"), sequence=1)])
+    with pytest.raises(ValueError, match="invalid token budget"):
+        reconstruct_run(
+            [
+                started,
+                replace(
+                    _event("run-1", "participant.admitted"),
+                    sequence=2,
+                    payload={"participant_id": "child", "token_budget": -1},
+                ),
+            ]
+        )

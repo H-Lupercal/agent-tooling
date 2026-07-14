@@ -11,8 +11,12 @@ from pathlib import Path
 from agent_harness.adapters.fake import FakeAdapter
 from agent_harness.config import HarnessConfig, load_config
 from agent_harness.controller import RunController
-from agent_harness.models import event_to_json
-from agent_harness.receipts import export_receipt, reconstruct_run
+from agent_harness.models import Participant, event_to_json
+from agent_harness.receipts import (
+    ReconstructedParticipant,
+    export_receipt,
+    reconstruct_run,
+)
 from agent_harness.room import CollaborationRoom
 from agent_harness.store import EventStore
 
@@ -92,12 +96,47 @@ def _fake_adapters(config: HarnessConfig) -> dict[str, FakeAdapter]:
     for participant in config.participants:
         if participant.adapter != "fake":
             raise ValueError("--fake requires every configured adapter to be fake")
-        role = participant.roles[0]
-        adapters[participant.participant_id] = FakeAdapter(
-            participant,
-            scripts=((f"{role} response from {participant.participant_id}",),),
-        )
+        adapters[participant.participant_id] = _fake_adapter(participant)
     return adapters
+
+
+def _fake_adapter(participant: Participant) -> FakeAdapter:
+    if participant.adapter != "fake":
+        raise ValueError("--fake requires every persisted adapter to be fake")
+    role = participant.roles[0]
+    return FakeAdapter(
+        participant,
+        scripts=((f"{role} response from {participant.participant_id}",),),
+    )
+
+
+def _restore_participant(snapshot: ReconstructedParticipant) -> Participant:
+    return Participant(
+        participant_id=snapshot.participant_id,
+        adapter=snapshot.adapter,
+        model=snapshot.model,
+        roles=snapshot.roles,
+        context_limit=snapshot.context_limit,
+        parent_id=snapshot.parent_id,
+    )
+
+
+def _validate_root_config(
+    config: HarnessConfig, snapshots: dict[str, ReconstructedParticipant]
+) -> None:
+    configured = {participant.participant_id: participant for participant in config.participants}
+    for snapshot in snapshots.values():
+        if snapshot.parent_id is not None:
+            continue
+        participant = configured.get(snapshot.participant_id)
+        if participant is None:
+            raise ValueError(
+                f"configuration drift: missing persisted participant {snapshot.participant_id}"
+            )
+        if participant != _restore_participant(snapshot):
+            raise ValueError(
+                f"configuration drift for persisted participant {snapshot.participant_id}"
+            )
 
 
 async def _run(store_path: Path, goal: str, fake: bool) -> None:
@@ -136,10 +175,21 @@ async def _resume(store_path: Path, run_id: str, fake: bool) -> None:
     if not isinstance(goal_value, str) or not goal_value:
         raise ValueError("run.started event does not contain a goal")
     config = load_config(_config_path())
+    if set(reconstructed.participant_states) != set(reconstructed.participants):
+        raise ValueError("run history lacks persisted participant metadata")
+    _validate_root_config(config, reconstructed.participants)
+    roster = {
+        participant_id: _restore_participant(snapshot)
+        for participant_id, snapshot in reconstructed.participants.items()
+    }
     adapters = {
-        participant_id: adapter
-        for participant_id, adapter in _fake_adapters(config).items()
-        if reconstructed.participant_states.get(participant_id) != "terminal"
+        participant_id: _fake_adapter(participant)
+        for participant_id, participant in roster.items()
+        if reconstructed.participant_states[participant_id] != "terminal"
+    }
+    contexts = {
+        participant_id: snapshot.context
+        for participant_id, snapshot in reconstructed.participants.items()
     }
     controller = RunController(
         run_id=run_id,
@@ -148,6 +198,9 @@ async def _resume(store_path: Path, run_id: str, fake: bool) -> None:
         max_simultaneous_speakers=config.capacity.max_simultaneous_speakers,
         capacity=config.capacity,
         total_token_budget=config.total_token_budget,
+        consumed_token_budget=reconstructed.consumed_token_budget,
+        participants=roster,
+        contexts=contexts,
     )
     await controller.resume(goal_value)
     print(f"run_id={run_id}")

@@ -122,7 +122,14 @@ def test_direct_cli_covers_incomplete_and_terminal_resume(
         run_id,
         "participant.joined",
         "runtime",
-        {"participant_id": "builder"},
+        {
+            "participant_id": "builder",
+            "adapter": "fake",
+            "model": "offline-builder",
+            "roles": ["builder"],
+            "context_limit": 8000,
+            "parent_id": None,
+        },
     )
     _append(store, run_id, "message.completed", "builder")
     _append(
@@ -130,7 +137,14 @@ def test_direct_cli_covers_incomplete_and_terminal_resume(
         run_id,
         "participant.joined",
         "runtime",
-        {"participant_id": "reviewer"},
+        {
+            "participant_id": "reviewer",
+            "adapter": "fake",
+            "model": "offline-reviewer",
+            "roles": ["reviewer"],
+            "context_limit": 8000,
+            "parent_id": None,
+        },
     )
 
     code, stdout, _ = _invoke(

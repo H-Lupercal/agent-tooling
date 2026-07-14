@@ -31,8 +31,11 @@ agent-harness --store .harness-state export RUN_ID receipt.jsonl
 agent-harness --store .harness-state resume RUN_ID --fake
 ```
 
-`resume` is only valid for an incomplete run. Completed, failed, and aborted histories are
-terminal and are refused with exit code 3.
+`resume` is only valid for an incomplete run. It restores the persisted roster, child
+lineage, selected child context, participant state, and consumed token budget; it does not
+add newly configured participants. Persisted root settings must still match the project
+configuration. Completed, failed, aborted, incomplete-metadata, and configuration-drift
+histories are refused with exit code 3.
 
 These commands and paths work on Linux, macOS, and Windows; shell syntax for creating or
 changing directories may vary. Python and SQLite provide the runtime portability.
@@ -55,10 +58,12 @@ count, spawn depth, simultaneous speakers, and token budget.
 - Message events contain text an agent deliberately publishes to the room. Hidden chain of
   thought or provider-internal reasoning is neither requested nor stored.
 - Interruptions describe a reason and require evidence at urgent priority. The event log
-  records both the request and how it was applied.
+  records both the request and how it was applied. A hard interruption prevents any remaining
+  chunks from being published as a completed response.
 - A dynamic child has its own identity, role, selected context, and budget. Because it shares
   lineage with its parent, it does not count as an independent reviewer in the later consensus
-  layer.
+  layer. An admitted child actively responds; adapter construction or execution failures are
+  retained as `participant.degraded` events without erasing lineage.
 - The foundation fake adapter is for deterministic tests and demonstrations, not simulated
   proof that a live provider completed work.
 

@@ -167,6 +167,17 @@ def test_child_joins_with_independent_context_and_lineage(tmp_path: Path) -> Non
         assert child.parent_id == "builder"
         assert child.participant_id == "builder/test-specialist-1"
         assert controller.context_for(child.participant_id) == ("requirement: reject empty input",)
+        await controller.wait_for_children()
+        child_events = [
+            event
+            for event in controller.room.store.replay("run-child")
+            if event.actor == child.participant_id
+        ]
+        assert [event.kind for event in child_events] == [
+            "message.started",
+            "message.delta",
+            "message.completed",
+        ]
 
     asyncio.run(scenario())
 
@@ -188,5 +199,207 @@ def test_child_budget_is_reserved_and_cannot_be_reused(tmp_path: Path) -> None:
 
         with pytest.raises(RuntimeError, match="token budget"):
             await controller.spawn_child("builder", "tester", "test", (), 300)
+
+    asyncio.run(scenario())
+
+
+def test_child_adapter_failure_persists_degraded_lineage(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        parent = _participant("builder")
+
+        def failing_factory(participant: Participant, request: ChildRequest) -> FakeAdapter:
+            del request
+            return FakeAdapter(participant, scripts=())
+
+        controller = RunController(
+            run_id="run-degraded-child",
+            adapters={"builder": FakeAdapter(parent, scripts=(("parent",),))},
+            room=CollaborationRoom(EventStore(tmp_path / "degraded-child.db")),
+            max_simultaneous_speakers=1,
+            capacity=CapacityPolicy(2, 1, 1, 1, 1),
+            total_token_budget=1000,
+            child_adapter_factory=failing_factory,
+        )
+
+        child = await controller.spawn_child(
+            "builder", "tester", "exercise failure", ("selected",), 200
+        )
+        await controller.wait_for_children()
+
+        events = controller.room.store.replay("run-degraded-child")
+        degraded = [event for event in events if event.kind == "participant.degraded"]
+        assert child.parent_id == "builder"
+        assert controller.context_for(child.participant_id) == ("selected",)
+        assert degraded[0].payload["participant_id"] == child.participant_id
+
+    asyncio.run(scenario())
+
+
+def test_resume_budget_does_not_restore_consumed_child_allocation(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        parent = _participant("builder")
+
+        def child_factory(participant: Participant, request: ChildRequest) -> FakeAdapter:
+            return FakeAdapter(participant, scripts=((request.objective,),))
+
+        controller = RunController(
+            run_id="run-reserved-budget",
+            adapters={"builder": FakeAdapter(parent, scripts=(("parent",),))},
+            room=CollaborationRoom(EventStore(tmp_path / "reserved-budget.db")),
+            max_simultaneous_speakers=1,
+            capacity=CapacityPolicy(2, 1, 1, 1, 1),
+            total_token_budget=1000,
+            consumed_token_budget=900,
+            child_adapter_factory=child_factory,
+        )
+
+        with pytest.raises(RuntimeError, match="token budget"):
+            await controller.spawn_child("builder", "tester", "test", (), 200)
+
+    asyncio.run(scenario())
+
+
+def test_controller_rejects_inconsistent_roster_and_budget_configuration(
+    tmp_path: Path,
+) -> None:
+    participant = _participant("builder")
+    adapter = FakeAdapter(participant, scripts=(("response",),))
+    room = CollaborationRoom(EventStore(tmp_path / "validation.db"))
+
+    with pytest.raises(ValueError, match="speaker limit"):
+        RunController(run_id="run-1", adapters={}, room=room, max_simultaneous_speakers=0)
+    with pytest.raises(ValueError, match="adapter keys"):
+        RunController(
+            run_id="run-1",
+            adapters={"wrong": adapter},
+            room=room,
+            max_simultaneous_speakers=1,
+        )
+    with pytest.raises(ValueError, match="roster participant"):
+        RunController(
+            run_id="run-1",
+            adapters={"builder": adapter},
+            participants={},
+            room=room,
+            max_simultaneous_speakers=1,
+        )
+    with pytest.raises(ValueError, match="match the roster"):
+        RunController(
+            run_id="run-1",
+            adapters={"builder": adapter},
+            participants={"builder": _participant("different")},
+            room=room,
+            max_simultaneous_speakers=1,
+        )
+    with pytest.raises(ValueError, match="participant capacity"):
+        RunController(
+            run_id="run-1",
+            adapters={"builder": adapter},
+            room=room,
+            max_simultaneous_speakers=1,
+            capacity=CapacityPolicy(1, 0, 0, 0, 1),
+            participants={"builder": participant, "other": _participant("other")},
+        )
+    with pytest.raises(ValueError, match="total token budget"):
+        RunController(
+            run_id="run-1",
+            adapters={"builder": adapter},
+            room=room,
+            max_simultaneous_speakers=1,
+            total_token_budget=0,
+        )
+    with pytest.raises(ValueError, match="consumed token budget"):
+        RunController(
+            run_id="run-1",
+            adapters={"builder": adapter},
+            room=room,
+            max_simultaneous_speakers=1,
+            total_token_budget=100,
+            consumed_token_budget=101,
+        )
+    with pytest.raises(ValueError, match="unknown participant"):
+        RunController(
+            run_id="run-1",
+            adapters={"builder": adapter},
+            room=room,
+            max_simultaneous_speakers=1,
+            contexts={"missing": ()},
+        )
+
+
+def test_child_rejection_covers_each_governance_limit(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        parent = _participant("builder")
+        adapter = FakeAdapter(parent, scripts=(("parent",),))
+
+        def factory(participant: Participant, request: ChildRequest) -> FakeAdapter:
+            return FakeAdapter(participant, scripts=((request.objective,),))
+
+        async def rejected(
+            run_id: str,
+            policy: CapacityPolicy,
+            expected: str,
+            *,
+            parent_id: str = "builder",
+            use_factory: bool = True,
+        ) -> None:
+            controller = RunController(
+                run_id=run_id,
+                adapters={"builder": adapter},
+                room=CollaborationRoom(EventStore(tmp_path / f"{run_id}.db")),
+                max_simultaneous_speakers=1,
+                capacity=policy,
+                total_token_budget=1000,
+                child_adapter_factory=factory if use_factory else None,
+            )
+            with pytest.raises(RuntimeError, match=expected):
+                await controller.spawn_child(parent_id, "tester", "test", (), 100)
+
+        await rejected(
+            "unknown-parent", CapacityPolicy(2, 1, 1, 1, 1), "unknown parent", parent_id="missing"
+        )
+        await rejected("dynamic-cap", CapacityPolicy(2, 0, 1, 1, 1), "dynamic child")
+        await rejected("parent-cap", CapacityPolicy(2, 1, 0, 1, 1), "children-per-parent")
+        await rejected("depth-cap", CapacityPolicy(2, 1, 1, 0, 1), "spawn depth")
+        await rejected(
+            "no-factory",
+            CapacityPolicy(2, 1, 1, 1, 1),
+            "factory",
+            use_factory=False,
+        )
+
+    asyncio.run(scenario())
+
+
+def test_child_factory_construction_failure_persists_degraded_event(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        parent = _participant("builder")
+
+        def failing_factory(participant: Participant, request: ChildRequest) -> FakeAdapter:
+            del participant, request
+            raise RuntimeError("factory unavailable")
+
+        controller = RunController(
+            run_id="run-factory-failure",
+            adapters={"builder": FakeAdapter(parent, scripts=(("parent",),))},
+            room=CollaborationRoom(EventStore(tmp_path / "factory-failure.db")),
+            max_simultaneous_speakers=1,
+            capacity=CapacityPolicy(2, 1, 1, 1, 1),
+            total_token_budget=1000,
+            child_adapter_factory=failing_factory,
+        )
+
+        child = await controller.spawn_child("builder", "tester", "test", (), 100)
+
+        degraded = [
+            event
+            for event in controller.room.store.replay("run-factory-failure")
+            if event.kind == "participant.degraded"
+        ]
+        assert degraded[0].payload["participant_id"] == child.participant_id
 
     asyncio.run(scenario())

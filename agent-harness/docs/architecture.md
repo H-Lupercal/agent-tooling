@@ -38,14 +38,19 @@ User / CLI ---- goal ----> Run Controller ----> Child Admission
 ## Lifecycle
 
 1. The controller persists `run.started` and the configured root roster.
-2. Participant adapters respond concurrently within the configured speaker limit. Every
-   started, delta, completed, or interrupted message is an explicit published event.
+2. Participant adapters respond concurrently within the configured speaker limit. The
+   initial speaker cohort persists all start events before any response continues. SQLite
+   writes run off the event loop, and every started, delta, completed, or interrupted message
+   is an explicit published event with recursively immutable payload data.
 3. Control operations publish request and outcome receipts. Run completion waits for an
    in-flight interruption receipt, preserving causal order.
 4. Dynamic children join only after admission checks and receive a separate identity and
-   explicitly selected context.
-5. A restarted process replays SQLite events to identify terminal participants. Resume runs
-   only nonterminal participants and appends `run.resumed` to the original history.
+   explicitly selected context. Their execution task is tracked through completion; adapter
+   failure persists a degradation event without deleting admission or lineage.
+5. A restarted process replays SQLite events to identify terminal participants, the exact
+   persisted roster and lineage, selected child context, and spent budget. Resume runs only
+   persisted nonterminal participants, rejects root configuration drift, and appends
+   `run.resumed` to the original history.
 6. Export writes all canonical events to a same-directory temporary file, flushes and syncs
    it, then atomically replaces the requested receipt path.
 

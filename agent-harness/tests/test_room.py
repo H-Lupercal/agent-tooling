@@ -1,5 +1,8 @@
 import asyncio
+import time
+from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -50,3 +53,43 @@ def test_room_rejects_invalid_queue_and_duplicate_subscriber(tmp_path: Path) -> 
     room.subscribe("same")
     with pytest.raises(ValueError, match="duplicate subscriber"):
         room.subscribe("same")
+
+
+def test_subscriber_cannot_mutate_shared_event_payload(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        room = CollaborationRoom(EventStore(tmp_path / "immutable.db"))
+        first = room.subscribe("first")
+        second = room.subscribe("second")
+        event = replace(
+            Event.example("run-immutable"),
+            payload={"status": "original", "items": ["one"]},
+        )
+
+        await room.publish(event)
+        first_event = await first.get()
+        with pytest.raises(TypeError):
+            cast(dict[str, object], first_event.payload)["status"] = "changed"
+        with pytest.raises(AttributeError):
+            cast(list[object], first_event.payload["items"]).append("two")
+
+        second_event = await second.get()
+        assert second_event.payload == {"status": "original", "items": ("one",)}
+
+    asyncio.run(scenario())
+
+
+def test_slow_persistence_does_not_block_event_loop(tmp_path: Path) -> None:
+    class SlowStore(EventStore):
+        def append(self, event: Event) -> Event:
+            time.sleep(0.1)
+            return super().append(event)
+
+    async def scenario() -> None:
+        room = CollaborationRoom(SlowStore(tmp_path / "slow.db"))
+        publish = asyncio.create_task(room.publish(Event.example("run-slow")))
+
+        await asyncio.sleep(0.01)
+        assert not publish.done()
+        assert (await publish).sequence == 1
+
+    asyncio.run(scenario())
