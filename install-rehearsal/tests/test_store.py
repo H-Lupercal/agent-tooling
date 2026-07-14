@@ -31,3 +31,8 @@ def test_store_rejects_unsafe_run_ids(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="run ID"):
         store.load("../escape")
+
+
+def test_latest_reports_empty_store(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="no rehearsal receipts"):
+        ReceiptStore(tmp_path).latest()

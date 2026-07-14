@@ -1,0 +1,12 @@
+schema_version = 2
+repository_identity = "2f6ff740be8fb3badd9dee23a7fa886bf33b7a260c8bf02e146f1ace28171a51"
+catalog_digest = "7ba8adb7c8b5829014b03b85b21d56a5d31cf56441b90bc35a2a735b4acaff79"
+
+[[tool]]
+tool_id = "ruff"
+version = "0.15.21"
+provenance = "pypi:ruff==0.15.21"
+install_scope = "user"
+permissions = ["filesystem-write", "network", "process-spawn"]
+required_env = []
+artifacts = []

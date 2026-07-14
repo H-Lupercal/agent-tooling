@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import hashlib
 import os
-from pathlib import Path
 import secrets
 import shutil
 import sys
 import tempfile
-from typing import Sequence
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from pathlib import Path
 
 from install_rehearsal import __version__
 from install_rehearsal.models import Coverage, Receipt
@@ -53,11 +53,15 @@ def _parser() -> argparse.ArgumentParser:
     compare = subparsers.add_parser("compare", help="compare two stored receipts")
     compare.add_argument("first")
     compare.add_argument("second")
+
+    recover = subparsers.add_parser("recover", help="list or clean retained profiles")
+    recover.add_argument("run_id", nargs="?", help="run ID to clean")
+    recover.add_argument("--clean", action="store_true", help="remove the selected profile")
     return parser
 
 
 def _new_run_id() -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     return f"{stamp}-{secrets.token_hex(4)}"
 
 
@@ -120,7 +124,9 @@ def _run(store: ReceiptStore, args: argparse.Namespace) -> int:
 
     child_environment = build_child_environment(os.environ, profile.environment)
     inherited_keys = tuple(sorted(set(child_environment) - set(profile.environment)))
-    started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    started_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    executable = _resolve_executable(installer_argv[0], child_environment)
+    executable_sha256 = _sha256_file(executable)
     before = take_snapshot(profile.root, SnapshotLimits())
     result = run_command(
         installer_argv,
@@ -129,7 +135,6 @@ def _run(store: ReceiptStore, args: argparse.Namespace) -> int:
         limits=RunLimits(timeout_seconds=args.timeout, output_bytes=args.output_bytes),
     )
     after = take_snapshot(profile.root, SnapshotLimits())
-    executable = _resolve_executable(installer_argv[0], child_environment)
     receipt = Receipt(
         schema_version=1,
         run_id=run_id,
@@ -139,7 +144,7 @@ def _run(store: ReceiptStore, args: argparse.Namespace) -> int:
         tool_version=__version__,
         argv=redact_argv(installer_argv),
         executable_path=str(executable) if executable else None,
-        executable_sha256=_sha256_file(executable),
+        executable_sha256=executable_sha256,
         inherited_environment_keys=inherited_keys,
         run=result,
         coverage=Coverage(
@@ -156,11 +161,18 @@ def _run(store: ReceiptStore, args: argparse.Namespace) -> int:
     )
     store.write(receipt)
 
+    cleanup_error: OSError | None = None
     if not args.keep_profile:
-        shutil.rmtree(profile_root)
-        store.clear_active(run_id)
+        try:
+            shutil.rmtree(profile_root)
+            store.clear_active(run_id)
+        except OSError as exc:
+            cleanup_error = exc
+            print(f"install-rehearsal: cleanup failed for {run_id}: {exc}", file=sys.stderr)
     sys.stdout.write(render_receipt(receipt, as_json=bool(args.json)))
-    return 0 if result.termination_reason == "exited" and result.exit_code == 0 else INSTALLER_FAILED
+    if result.termination_reason != "exited" or result.exit_code != 0:
+        return INSTALLER_FAILED
+    return TOOL_ERROR if cleanup_error else 0
 
 
 def _show(store: ReceiptStore, args: argparse.Namespace) -> int:
@@ -175,6 +187,36 @@ def _compare(store: ReceiptStore, args: argparse.Namespace) -> int:
     return 1 if different else 0
 
 
+def _recover(store: ReceiptStore, args: argparse.Namespace) -> int:
+    profiles = store.abandoned_profiles()
+    run_id = args.run_id
+    if run_id is None:
+        if not profiles:
+            sys.stdout.write("No retained or abandoned profiles.\n")
+        else:
+            for identifier, profile in profiles.items():
+                sys.stdout.write(f"{identifier}\t{profile}\n")
+        return 0
+    if not args.clean:
+        raise ValueError("recover RUN_ID requires --clean")
+    profile = profiles.get(str(run_id))
+    if profile is None:
+        raise ValueError(f"no recovery marker for run ID: {run_id}")
+    profiles_root = (store.root / "profiles").resolve()
+    candidate = profile.resolve()
+    try:
+        relative = candidate.relative_to(profiles_root)
+    except ValueError as exc:
+        raise ValueError("recovery profile is outside the receipt store") from exc
+    if relative.parent != Path(".") or not relative.name.startswith(f"{run_id}-"):
+        raise ValueError("recovery profile must be a run-bound direct child of profiles")
+    if candidate.exists():
+        shutil.rmtree(candidate)
+    store.clear_active(str(run_id))
+    sys.stdout.write(f"Cleaned profile for {run_id}.\n")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     store = ReceiptStore(args.store)
@@ -185,7 +227,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _show(store, args)
         if args.command == "compare":
             return _compare(store, args)
-    except (OSError, ValueError, KeyError) as exc:
+        if args.command == "recover":
+            return _recover(store, args)
+    except (OSError, OverflowError, ValueError, KeyError, TypeError, AttributeError) as exc:
         print(f"install-rehearsal: {exc}", file=sys.stderr)
         return TOOL_ERROR
     raise AssertionError(f"unhandled command: {args.command}")

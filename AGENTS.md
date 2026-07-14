@@ -5,7 +5,7 @@ Home-level safety rules still apply.
 
 ## Scope
 
-- `toolbelt/` and `codex-conductor/` are independent Python packages.
+- `toolbelt/`, `codex-conductor/`, and `install-rehearsal/` are independent Python packages.
 - Keep package code, tests, lockfiles, and documentation inside the owning project.
 - Root files own monorepo CI, releases, security, support, and contribution policy.
 - Do not introduce a runtime dependency between the two packages.
@@ -27,6 +27,10 @@ make check PYTHON=.venv/bin/python
 make distribution PYTHON=.venv/bin/python  # Toolbelt
 make dist-test PYTHON=.venv/bin/python     # Conductor
 make e2e PYTHON=.venv/bin/python
+
+cd ../install-rehearsal
+make check PYTHON=.venv/bin/python
+make build PYTHON=.venv/bin/python
 ```
 
 For release work, also run locked builds, Twine, dependency audits, SBOM generation,

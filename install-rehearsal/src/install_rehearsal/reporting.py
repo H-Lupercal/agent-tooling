@@ -66,4 +66,3 @@ def render_comparison(first: Receipt, second: Receipt) -> tuple[str, bool]:
     lines = [f"Semantic differences: {first.run_id} -> {second.run_id}"]
     lines.extend(f"  - {difference}" for difference in differences)
     return "\n".join(lines) + "\n", True
-

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal, Mapping, cast
+from typing import Literal, cast
 
 Actor = Literal["toolbelt", "conductor", "codex", "verification"]
 
@@ -33,6 +34,8 @@ def load_records(path: Path) -> list[ActivityRecord]:
     """Load records from a JSON Lines ledger."""
     records: list[ActivityRecord] = []
     for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
         value = cast(dict[str, object], json.loads(line))
         actor = value["actor"]
         if actor not in {"toolbelt", "conductor", "codex", "verification"}:
@@ -66,4 +69,3 @@ def render_markdown(records: list[ActivityRecord]) -> str:
         for record in records
     )
     return "\n".join(rows) + "\n"
-

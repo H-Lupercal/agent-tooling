@@ -1,27 +1,30 @@
 # Agent Tooling
 
-Agent Tooling is a Python monorepo containing two independently versioned command-line
+Agent Tooling is a Python monorepo containing three independently versioned command-line
 tools for professional AI-assisted development.
 
 | Project | Package | Purpose |
 | --- | --- | --- |
 | [Toolbelt](toolbelt/) | `toolbelt-ai` | Deterministically discovers, plans, installs, and reconciles AI-development tools. |
 | [Codex Conductor](codex-conductor/) | `codex-conductor` | Enforces cost-aware subagent admission, routing, lifecycle accounting, and installation policy for Codex and Claude Code. |
+| [Install Rehearsal](install-rehearsal/) | `install-rehearsal` | Observes trusted installer effects in a disposable redirected user profile. |
 
-Both projects require Python 3.11 or newer, ship typed wheels, use locked development
-environments, and retain their own changelogs and detailed documentation.
+All projects require Python 3.11 or newer, ship typed wheels, use locked development
+environments, and include detailed documentation.
 
 ## Install
 
 ```sh
 pipx install toolbelt-ai
 python -m pip install codex-conductor
+python -m pip install ./install-rehearsal
 ```
 
 Package-specific setup and trust-boundary guidance is in each project README:
 
 - [Toolbelt quick start](toolbelt/README.md)
 - [Codex Conductor quick start](codex-conductor/README.md)
+- [Install Rehearsal quick start](install-rehearsal/README.md)
 
 ## Develop
 
@@ -41,6 +44,11 @@ uv sync --extra dev --locked
 make check PYTHON=.venv/bin/python
 make dist-test PYTHON=.venv/bin/python
 make e2e PYTHON=.venv/bin/python
+
+cd ../install-rehearsal
+uv sync --extra dev --locked
+make check PYTHON=.venv/bin/python
+make build PYTHON=.venv/bin/python
 ```
 
 The root release-contract test validates monorepo metadata and automation:
@@ -51,7 +59,7 @@ codex-conductor/.venv/bin/python -m pytest tests/test_release_contract.py -q
 
 ## Releases
 
-The packages release independently through protected GitHub environments and PyPI
+The currently published packages release independently through protected GitHub environments and PyPI
 Trusted Publishing:
 
 - Toolbelt tags: `toolbelt-vX.Y.Z`

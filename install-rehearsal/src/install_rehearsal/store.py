@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import secrets
-from typing import Mapping, cast
+from collections.abc import Mapping
+from pathlib import Path
+from typing import cast
 
 from install_rehearsal.models import Receipt, receipt_from_dict, receipt_to_json, validate_run_id
 
@@ -45,7 +46,7 @@ class ReceiptStore:
     def load(self, run_id: str) -> Receipt:
         validate_run_id(run_id)
         path = self.receipts / f"{run_id}.json"
-        value = cast(Mapping[str, object], json.loads(path.read_text(encoding="utf-8")))
+        value = json.loads(path.read_text(encoding="utf-8"))
         return receipt_from_dict(value)
 
     def latest(self) -> Receipt:

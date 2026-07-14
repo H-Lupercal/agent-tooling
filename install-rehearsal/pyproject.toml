@@ -9,7 +9,21 @@ description = "Preview trusted developer-tool installer effects in a disposable 
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+classifiers = [
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/H-Lupercal/agent-tooling/tree/main/install-rehearsal"
+Documentation = "https://github.com/H-Lupercal/agent-tooling/tree/main/install-rehearsal#readme"
+Repository = "https://github.com/H-Lupercal/agent-tooling"
+Issues = "https://github.com/H-Lupercal/agent-tooling/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -47,11 +61,14 @@ branch = true
 source = ["install_rehearsal"]
 
 [tool.coverage.report]
+fail_under = 90
 show_missing = true
+exclude_also = ["if __name__ == .__main__.:"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
@@ -62,4 +79,3 @@ typeCheckingMode = "strict"
 include = ["src", "tests"]
 venvPath = "."
 venv = ".venv"
-

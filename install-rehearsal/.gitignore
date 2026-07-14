@@ -7,4 +7,7 @@ build/
 dist/
 *.egg-info/
 .install-rehearsal/
-
+.toolbelt/apply.lock
+.toolbelt/backups/
+.toolbelt/plan.json
+.toolbelt/state.sqlite3*

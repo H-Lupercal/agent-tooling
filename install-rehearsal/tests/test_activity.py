@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from install_rehearsal.activity import ActivityRecord, append_record, render_markdown
+import pytest
+
+from install_rehearsal.activity import (
+    ActivityRecord,
+    append_record,
+    load_records,
+    render_markdown,
+)
 
 
 def test_append_record_writes_canonical_jsonl(tmp_path: Path) -> None:
@@ -37,3 +44,45 @@ def test_render_markdown_groups_records_by_actor() -> None:
 
     assert "| conductor | status |" in rendered
     assert "No code authorship attributed" in rendered
+
+
+def test_load_records_round_trips_appended_record(tmp_path: Path) -> None:
+    target = tmp_path / "activity.jsonl"
+    record = ActivityRecord(
+        timestamp="2026-07-12T00:00:00Z",
+        actor="verification",
+        operation="test",
+        inputs={},
+        outputs={"passed": 1},
+        affected_paths=("tests/test_activity.py",),
+        evidence_command="pytest tests/test_activity.py",
+    )
+    append_record(target, record)
+
+    assert load_records(target) == [record]
+
+
+def test_load_records_rejects_unknown_actor(tmp_path: Path) -> None:
+    target = tmp_path / "activity.jsonl"
+    target.write_text(
+        '{"actor":"invented","affected_paths":[],"evidence_command":"none",'
+        '"inputs":{},"operation":"fake","outputs":{},"timestamp":"now"}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unknown activity actor"):
+        load_records(target)
+
+
+def test_committed_ledger_loads_despite_trailing_blank_lines() -> None:
+    ledger = Path(__file__).parents[1] / "docs" / "tool-activity.jsonl"
+
+    assert load_records(ledger)
+
+
+def test_committed_markdown_matches_machine_readable_ledger() -> None:
+    docs = Path(__file__).parents[1] / "docs"
+
+    assert (docs / "tool-activity.md").read_text(encoding="utf-8") == render_markdown(
+        load_records(docs / "tool-activity.jsonl")
+    )

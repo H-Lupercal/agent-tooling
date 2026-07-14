@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from install_rehearsal.profiles import build_profile
+from install_rehearsal.profiles import build_profile, windows_home_parts
 
 
 def test_linux_profile_redirects_xdg_paths(tmp_path: Path) -> None:
@@ -32,3 +32,6 @@ def test_unsupported_platform_has_stable_error(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="UNSUPPORTED_PLATFORM"):
         build_profile("plan9", tmp_path)
 
+
+def test_windows_home_parts_do_not_duplicate_drive() -> None:
+    assert windows_home_parts(r"C:\Users\Neil") == ("C:", r"\Users\Neil")

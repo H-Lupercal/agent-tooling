@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
-from pathlib import PurePosixPath
+import math
 import re
-from typing import Literal, Mapping, cast
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from pathlib import PurePosixPath
+from typing import Literal, cast
 
 FileKind = Literal["file", "directory", "symlink", "other"]
 ChangeKind = Literal["created", "modified", "deleted", "type_changed"]
@@ -82,8 +84,8 @@ class RunResult:
     def __post_init__(self) -> None:
         if self.termination_reason not in {"exited", "timeout", "launch_error"}:
             raise ValueError("unknown termination reason")
-        if self.duration_seconds < 0:
-            raise ValueError("duration cannot be negative")
+        if not math.isfinite(self.duration_seconds) or self.duration_seconds < 0:
+            raise ValueError("duration must be finite and non-negative")
         _validate_hash(self.stdout_sha256, "stdout hash")
         _validate_hash(self.stderr_sha256, "stderr hash")
 
@@ -164,59 +166,170 @@ def receipt_to_json(receipt: Receipt) -> str:
     return json.dumps(receipt_to_dict(receipt), sort_keys=True, separators=(",", ":")) + "\n"
 
 
-def _file_state(value: object) -> FileState | None:
+def _object(value: object, field: str, keys: set[str]) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field} must be an object")
+    mapping = cast(Mapping[object, object], value)
+    if not all(isinstance(key, str) for key in mapping):
+        raise ValueError(f"{field} keys must be strings")
+    typed_mapping = cast(Mapping[str, object], value)
+    actual_keys = set(typed_mapping)
+    if actual_keys != keys:
+        raise ValueError(f"{field} has missing or unexpected fields")
+    return typed_mapping
+
+
+def _string(value: object, field: str) -> str:
+    if type(value) is not str:
+        raise ValueError(f"{field} must be a string")
+    return value
+
+
+def _optional_string(value: object, field: str) -> str | None:
     if value is None:
         return None
-    item = cast(Mapping[str, object], value)
+    return _string(value, field)
+
+
+def _integer(value: object, field: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
+def _optional_integer(value: object, field: str) -> int | None:
+    if value is None:
+        return None
+    return _integer(value, field)
+
+
+def _number(value: object, field: str) -> float:
+    if type(value) not in {int, float}:
+        raise ValueError(f"{field} must be a number")
+    result = float(cast(int | float, value))
+    if not math.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
+def _boolean(value: object, field: str) -> bool:
+    if type(value) is not bool:
+        raise ValueError(f"{field} must be a boolean")
+    return value
+
+
+def _strings(value: object, field: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{field} must be an array")
+    items = cast(list[object] | tuple[object, ...], value)
+    return tuple(_string(item, f"{field} item") for item in items)
+
+
+_FILE_STATE_KEYS = {"kind", "size", "sha256", "mode", "symlink_target"}
+_DELTA_KEYS = {"path", "change", "before", "after"}
+_RUN_KEYS = {
+    "exit_code",
+    "termination_reason",
+    "duration_seconds",
+    "stdout_sha256",
+    "stderr_sha256",
+    "stdout_excerpt",
+    "stderr_excerpt",
+    "stdout_truncated",
+    "stderr_truncated",
+}
+_COVERAGE_KEYS = {"profile_root", "covered_paths", "limitations"}
+_RECEIPT_KEYS = {
+    "schema_version",
+    "run_id",
+    "trust_label",
+    "started_at",
+    "platform",
+    "tool_version",
+    "argv",
+    "executable_path",
+    "executable_sha256",
+    "inherited_environment_keys",
+    "run",
+    "coverage",
+    "filesystem_delta",
+    "warnings",
+}
+
+
+def _file_state(value: object, field: str) -> FileState | None:
+    if value is None:
+        return None
+    item = _object(value, field, _FILE_STATE_KEYS)
     return FileState(
-        kind=cast(FileKind, item["kind"]),
-        size=int(cast(int, item["size"])),
-        sha256=cast(str | None, item["sha256"]),
-        mode=cast(int | None, item["mode"]),
-        symlink_target=cast(str | None, item["symlink_target"]),
+        kind=cast(FileKind, _string(item["kind"], f"{field}.kind")),
+        size=_integer(item["size"], f"{field}.size"),
+        sha256=_optional_string(item["sha256"], f"{field}.sha256"),
+        mode=_optional_integer(item["mode"], f"{field}.mode"),
+        symlink_target=_optional_string(item["symlink_target"], f"{field}.symlink_target"),
     )
 
 
-def receipt_from_dict(value: Mapping[str, object]) -> Receipt:
-    run_value = cast(Mapping[str, object], value["run"])
-    coverage_value = cast(Mapping[str, object], value["coverage"])
-    delta_values = cast(list[Mapping[str, object]], value["filesystem_delta"])
+def receipt_from_dict(value: object) -> Receipt:
+    receipt_value = _object(value, "receipt", _RECEIPT_KEYS)
+    run_value = _object(receipt_value["run"], "run", _RUN_KEYS)
+    coverage_value = _object(receipt_value["coverage"], "coverage", _COVERAGE_KEYS)
+    delta_value = receipt_value["filesystem_delta"]
+    if not isinstance(delta_value, (list, tuple)):
+        raise ValueError("filesystem_delta must be an array")
+    delta_items = cast(list[object] | tuple[object, ...], delta_value)
+    delta_values = [
+        _object(item, f"filesystem_delta[{index}]", _DELTA_KEYS)
+        for index, item in enumerate(delta_items)
+    ]
     return Receipt(
-        schema_version=cast(Literal[1], value["schema_version"]),
-        run_id=str(value["run_id"]),
-        trust_label=cast(Literal["REHEARSAL_NOT_SANDBOXED"], value["trust_label"]),
-        started_at=str(value["started_at"]),
-        platform=str(value["platform"]),
-        tool_version=str(value["tool_version"]),
-        argv=tuple(cast(list[str], value["argv"])),
-        executable_path=cast(str | None, value["executable_path"]),
-        executable_sha256=cast(str | None, value["executable_sha256"]),
-        inherited_environment_keys=tuple(cast(list[str], value["inherited_environment_keys"])),
+        schema_version=cast(
+            Literal[1], _integer(receipt_value["schema_version"], "schema_version")
+        ),
+        run_id=_string(receipt_value["run_id"], "run_id"),
+        trust_label=cast(
+            Literal["REHEARSAL_NOT_SANDBOXED"],
+            _string(receipt_value["trust_label"], "trust_label"),
+        ),
+        started_at=_string(receipt_value["started_at"], "started_at"),
+        platform=_string(receipt_value["platform"], "platform"),
+        tool_version=_string(receipt_value["tool_version"], "tool_version"),
+        argv=_strings(receipt_value["argv"], "argv"),
+        executable_path=_optional_string(receipt_value["executable_path"], "executable_path"),
+        executable_sha256=_optional_string(receipt_value["executable_sha256"], "executable_sha256"),
+        inherited_environment_keys=_strings(
+            receipt_value["inherited_environment_keys"], "inherited_environment_keys"
+        ),
         run=RunResult(
-            exit_code=cast(int | None, run_value["exit_code"]),
-            termination_reason=cast(TerminationReason, run_value["termination_reason"]),
-            duration_seconds=float(cast(float, run_value["duration_seconds"])),
-            stdout_sha256=str(run_value["stdout_sha256"]),
-            stderr_sha256=str(run_value["stderr_sha256"]),
-            stdout_excerpt=str(run_value["stdout_excerpt"]),
-            stderr_excerpt=str(run_value["stderr_excerpt"]),
-            stdout_truncated=bool(run_value["stdout_truncated"]),
-            stderr_truncated=bool(run_value["stderr_truncated"]),
+            exit_code=_optional_integer(run_value["exit_code"], "run.exit_code"),
+            termination_reason=cast(
+                TerminationReason,
+                _string(run_value["termination_reason"], "run.termination_reason"),
+            ),
+            duration_seconds=_number(run_value["duration_seconds"], "run.duration_seconds"),
+            stdout_sha256=_string(run_value["stdout_sha256"], "run.stdout_sha256"),
+            stderr_sha256=_string(run_value["stderr_sha256"], "run.stderr_sha256"),
+            stdout_excerpt=_string(run_value["stdout_excerpt"], "run.stdout_excerpt"),
+            stderr_excerpt=_string(run_value["stderr_excerpt"], "run.stderr_excerpt"),
+            stdout_truncated=_boolean(run_value["stdout_truncated"], "run.stdout_truncated"),
+            stderr_truncated=_boolean(run_value["stderr_truncated"], "run.stderr_truncated"),
         ),
         coverage=Coverage(
-            profile_root=str(coverage_value["profile_root"]),
-            covered_paths=tuple(cast(list[str], coverage_value["covered_paths"])),
-            limitations=tuple(cast(list[str], coverage_value["limitations"])),
+            profile_root=_string(coverage_value["profile_root"], "coverage.profile_root"),
+            covered_paths=_strings(coverage_value["covered_paths"], "coverage.covered_paths"),
+            limitations=_strings(coverage_value["limitations"], "coverage.limitations"),
         ),
         filesystem_delta=tuple(
             FileDelta(
-                path=str(item["path"]),
-                change=cast(ChangeKind, item["change"]),
-                before=_file_state(item["before"]),
-                after=_file_state(item["after"]),
+                path=_string(item["path"], f"filesystem_delta[{index}].path"),
+                change=cast(
+                    ChangeKind,
+                    _string(item["change"], f"filesystem_delta[{index}].change"),
+                ),
+                before=_file_state(item["before"], f"filesystem_delta[{index}].before"),
+                after=_file_state(item["after"], f"filesystem_delta[{index}].after"),
             )
-            for item in delta_values
+            for index, item in enumerate(delta_values)
         ),
-        warnings=tuple(cast(list[str], value["warnings"])),
+        warnings=_strings(receipt_value["warnings"], "warnings"),
     )
-
