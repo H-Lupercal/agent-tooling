@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
 from agent_harness.adapters.base import ParticipantAdapter
-from agent_harness.models import Event
+from agent_harness.models import CapacityPolicy, ChildRequest, Event, Participant
 from agent_harness.room import CollaborationRoom
 
 
@@ -19,6 +19,11 @@ class RunController:
         adapters: Mapping[str, ParticipantAdapter],
         room: CollaborationRoom,
         max_simultaneous_speakers: int,
+        capacity: CapacityPolicy | None = None,
+        total_token_budget: int = 1,
+        child_adapter_factory: (
+            Callable[[Participant, ChildRequest], ParticipantAdapter] | None
+        ) = None,
     ) -> None:
         if max_simultaneous_speakers < 1:
             raise ValueError("simultaneous speaker limit must be positive")
@@ -27,6 +32,24 @@ class RunController:
         self.run_id = run_id
         self.adapters = dict(adapters)
         self.room = room
+        self.capacity = capacity or CapacityPolicy(
+            max_participants=max(1, len(adapters)),
+            max_dynamic_children=0,
+            max_children_per_parent=0,
+            max_spawn_depth=0,
+            max_simultaneous_speakers=max_simultaneous_speakers,
+        )
+        if len(adapters) > self.capacity.max_participants:
+            raise ValueError("configured root roster exceeds participant capacity")
+        if total_token_budget <= 0:
+            raise ValueError("total token budget must be positive")
+        self._remaining_token_budget = total_token_budget
+        self._child_adapter_factory = child_adapter_factory
+        self._dynamic_children = 0
+        self._children_per_parent: dict[str, int] = {}
+        self._contexts: dict[str, tuple[str, ...]] = {
+            participant_id: () for participant_id in adapters
+        }
         self._speaker_slots = asyncio.Semaphore(max_simultaneous_speakers)
         self._responding_count = 0
 
@@ -121,3 +144,91 @@ class RunController:
             {"target": participant_id, "mode": "hard" if hard else "queued"},
         )
         return hard
+
+    def context_for(self, participant_id: str) -> tuple[str, ...]:
+        try:
+            return self._contexts[participant_id]
+        except KeyError as exc:
+            raise ValueError(f"unknown participant: {participant_id}") from exc
+
+    def _spawn_depth(self, participant_id: str) -> int:
+        depth = 0
+        current = self.adapters[participant_id].participant
+        while current.parent_id is not None:
+            depth += 1
+            current = self.adapters[current.parent_id].participant
+        return depth
+
+    async def _reject_spawn(self, parent_id: str, role: str, reason: str) -> None:
+        await self._publish(
+            "participant.spawn_rejected",
+            "runtime",
+            {"parent_id": parent_id, "role": role, "reason": reason},
+        )
+        raise RuntimeError(reason)
+
+    async def spawn_child(
+        self,
+        parent_id: str,
+        role: str,
+        objective: str,
+        context: tuple[str, ...],
+        token_budget: int,
+    ) -> Participant:
+        request = ChildRequest(role, objective, context, token_budget)
+        await self._publish(
+            "participant.spawn_requested",
+            parent_id,
+            {
+                "parent_id": parent_id,
+                "role": role,
+                "objective": objective,
+                "token_budget": token_budget,
+            },
+        )
+        if parent_id not in self.adapters:
+            await self._reject_spawn(parent_id, role, "unknown parent participant")
+        if len(self.adapters) >= self.capacity.max_participants:
+            await self._reject_spawn(parent_id, role, "participant capacity exceeded")
+        if self._dynamic_children >= self.capacity.max_dynamic_children:
+            await self._reject_spawn(parent_id, role, "dynamic child capacity exceeded")
+        child_count = self._children_per_parent.get(parent_id, 0)
+        if child_count >= self.capacity.max_children_per_parent:
+            await self._reject_spawn(parent_id, role, "children-per-parent capacity exceeded")
+        if self._spawn_depth(parent_id) + 1 > self.capacity.max_spawn_depth:
+            await self._reject_spawn(parent_id, role, "spawn depth exceeded")
+        if request.token_budget > self._remaining_token_budget:
+            await self._reject_spawn(parent_id, role, "token budget exceeded")
+        if self._child_adapter_factory is None:
+            await self._reject_spawn(parent_id, role, "child adapter factory is unavailable")
+
+        ordinal = child_count + 1
+        parent = self.adapters[parent_id].participant
+        child = Participant(
+            participant_id=f"{parent_id}/{role}-{ordinal}",
+            adapter=parent.adapter,
+            model=parent.model,
+            roles=(role,),
+            context_limit=parent.context_limit,
+            parent_id=parent_id,
+        )
+        factory = self._child_adapter_factory
+        if factory is None:
+            raise AssertionError("child adapter factory disappeared after validation")
+        adapter = factory(child, request)
+        self.adapters[child.participant_id] = adapter
+        self._contexts[child.participant_id] = tuple(context)
+        self._children_per_parent[parent_id] = ordinal
+        self._dynamic_children += 1
+        self._remaining_token_budget -= request.token_budget
+        await self._publish(
+            "participant.admitted",
+            "runtime",
+            {
+                "participant_id": child.participant_id,
+                "parent_id": parent_id,
+                "role": role,
+                "token_budget": token_budget,
+            },
+        )
+        return child

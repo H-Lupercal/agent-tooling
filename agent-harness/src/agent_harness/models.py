@@ -33,6 +33,43 @@ class Participant:
 
 
 @dataclass(frozen=True)
+class CapacityPolicy:
+    max_participants: int
+    max_dynamic_children: int
+    max_children_per_parent: int
+    max_spawn_depth: int
+    max_simultaneous_speakers: int
+
+    def __post_init__(self) -> None:
+        if self.max_participants <= 0:
+            raise ValueError("participant capacity must be positive")
+        for label, value in (
+            ("dynamic child capacity", self.max_dynamic_children),
+            ("children per parent", self.max_children_per_parent),
+            ("spawn depth", self.max_spawn_depth),
+        ):
+            if value < 0:
+                raise ValueError(f"{label} cannot be negative")
+        if self.max_simultaneous_speakers <= 0:
+            raise ValueError("simultaneous speaker limit must be positive")
+
+
+@dataclass(frozen=True)
+class ChildRequest:
+    role: str
+    objective: str
+    context: tuple[str, ...]
+    token_budget: int
+
+    def __post_init__(self) -> None:
+        _identifier(self.role, "child role")
+        if not self.objective.strip():
+            raise ValueError("child objective cannot be empty")
+        if self.token_budget <= 0:
+            raise ValueError("child token budget must be positive")
+
+
+@dataclass(frozen=True)
 class Event:
     schema_version: int
     run_id: str
