@@ -18,8 +18,11 @@ def test_append_assigns_monotonic_sequences(tmp_path: Path) -> None:
 def test_concurrent_appends_do_not_duplicate_sequences(tmp_path: Path) -> None:
     store = EventStore(tmp_path / "events.db")
 
+    def append_event(_: int) -> Event:
+        return store.append(Event.example("run-1"))
+
     with ThreadPoolExecutor(max_workers=4) as pool:
-        events = list(pool.map(lambda _: store.append(Event.example("run-1")), range(20)))
+        events = list(pool.map(append_event, range(20)))
 
     assert sorted(event.sequence for event in events) == list(range(1, 21))
     assert [event.sequence for event in store.replay("run-1")] == list(range(1, 21))

@@ -51,6 +51,7 @@ class RunController:
             participant_id: () for participant_id in adapters
         }
         self._speaker_slots = asyncio.Semaphore(max_simultaneous_speakers)
+        self._control_operation = asyncio.Lock()
         self._responding_count = 0
 
     @property
@@ -108,7 +109,8 @@ class RunController:
         await asyncio.gather(
             *(self._respond(participant_id, goal) for participant_id in sorted(self.adapters))
         )
-        await self._publish("run.completed", "runtime", {})
+        async with self._control_operation:
+            await self._publish("run.completed", "runtime", {})
 
     async def wait_until_responding(self, count: int, timeout: float = 2.0) -> None:
         async with asyncio.timeout(timeout):
@@ -127,23 +129,24 @@ class RunController:
             raise ValueError("urgent interruption requires evidence")
         if participant_id not in self.adapters:
             raise ValueError(f"unknown participant: {participant_id}")
-        await self._publish(
-            "interrupt.requested",
-            "user",
-            {
-                "target": participant_id,
-                "priority": priority,
-                "reason": reason,
-                "evidence": evidence,
-            },
-        )
-        hard = await self.adapters[participant_id].interrupt(reason)
-        await self._publish(
-            "interrupt.applied",
-            "runtime",
-            {"target": participant_id, "mode": "hard" if hard else "queued"},
-        )
-        return hard
+        async with self._control_operation:
+            await self._publish(
+                "interrupt.requested",
+                "user",
+                {
+                    "target": participant_id,
+                    "priority": priority,
+                    "reason": reason,
+                    "evidence": evidence,
+                },
+            )
+            hard = await self.adapters[participant_id].interrupt(reason)
+            await self._publish(
+                "interrupt.applied",
+                "runtime",
+                {"target": participant_id, "mode": "hard" if hard else "queued"},
+            )
+            return hard
 
     def context_for(self, participant_id: str) -> tuple[str, ...]:
         try:

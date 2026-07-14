@@ -84,6 +84,47 @@ def test_urgent_interrupt_requires_reason_and_evidence(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_run_completion_waits_for_interrupt_receipt(tmp_path: Path) -> None:
+    class DelayedInterruptAdapter(FakeAdapter):
+        async def interrupt(self, reason: str) -> bool:
+            interrupted = await super().interrupt(reason)
+            await asyncio.sleep(0.05)
+            return interrupted
+
+    async def scenario() -> None:
+        gate = asyncio.Event()
+        participant = _participant("agent-1")
+        adapter = DelayedInterruptAdapter(
+            participant,
+            scripts=(("unfinished",),),
+            pause=gate,
+        )
+        controller = RunController(
+            run_id="run-ordered-interrupt",
+            adapters={participant.participant_id: adapter},
+            room=CollaborationRoom(EventStore(tmp_path / "ordered-interrupt.db")),
+            max_simultaneous_speakers=1,
+        )
+        run = asyncio.create_task(controller.run("review implementation"))
+        await controller.wait_until_responding(1)
+
+        assert await controller.interrupt(
+            "agent-1",
+            priority="urgent",
+            reason="new failing test",
+            evidence="tests/test_parser.py::test_empty",
+        )
+        await run
+
+        kinds = [
+            event.kind
+            for event in controller.room.store.replay("run-ordered-interrupt")
+        ]
+        assert kinds[-2:] == ["interrupt.applied", "run.completed"]
+
+    asyncio.run(scenario())
+
+
 def _child_controller(
     tmp_path: Path,
     *,
