@@ -23,10 +23,10 @@ jobs:
       # Required to persist the provenance attestation.
       attestations: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
@@ -61,19 +61,19 @@ jobs:
           cd dist
           sha256sum *.whl *.tar.gz *.cdx.json > SHA256SUMS
         working-directory: toolbelt
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: |
             toolbelt/dist/*.whl
             toolbelt/dist/*.tar.gz
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: toolbelt-pypi-distributions
           path: |
             toolbelt/dist/*.whl
             toolbelt/dist/*.tar.gz
           if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: toolbelt-release-assets
           path: toolbelt/dist/*
@@ -92,7 +92,7 @@ jobs:
       name: pypi-toolbelt
       url: https://pypi.org/project/toolbelt-ai/
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: toolbelt-pypi-distributions
           path: toolbelt-pypi-dist
@@ -100,7 +100,7 @@ jobs:
         with:
           packages-dir: toolbelt-pypi-dist/
           skip-existing: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: toolbelt-release-assets
           path: toolbelt-release-assets
