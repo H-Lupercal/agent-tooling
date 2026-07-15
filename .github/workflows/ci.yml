@@ -89,9 +89,7 @@ jobs:
         working-directory: install-rehearsal
       - run: uv run pyright
         working-directory: install-rehearsal
-      - run: >-
-          uv run pytest --cov=install_rehearsal --cov-branch
-          --cov-report=term-missing --cov-fail-under=90
+      - run: uv run pytest -q
         working-directory: install-rehearsal
       - run: uv build --offline --clear
         working-directory: install-rehearsal
@@ -134,6 +132,8 @@ jobs:
             coverage-source: src/toolbelt
           - project: codex-conductor
             coverage-source: conductor
+          - project: install-rehearsal
+            coverage-source: install_rehearsal
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:

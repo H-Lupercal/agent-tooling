@@ -185,6 +185,18 @@ def test_ci_targets_both_project_directories_and_unique_artifacts() -> None:
     assert text.count("scripts/finalize_sbom.py") == 1
 
 
+def test_install_rehearsal_separates_platform_tests_from_coverage_gate() -> None:
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    platform_job = text.split("\n  install-rehearsal:", 1)[1].split("\n  test:", 1)[0]
+    coverage_job = text.split("\n  coverage:", 1)[1].split("\n  distribution:", 1)[0]
+
+    assert "uv run pytest -q" in platform_job
+    assert "--cov" not in platform_job
+    assert "- project: install-rehearsal" in coverage_job
+    assert "coverage-source: install_rehearsal" in coverage_job
+    assert "--cov-fail-under=90" in coverage_job
+
+
 def test_clean_environment_installs_do_not_depend_on_uv_cache_state() -> None:
     workflows = ROOT / ".github" / "workflows"
     for name in ("ci.yml", "release-toolbelt.yml", "release-codex-conductor.yml"):
