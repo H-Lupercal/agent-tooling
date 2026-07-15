@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import time
@@ -17,7 +18,7 @@ def test_runner_captures_success_without_shell(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0
-    assert result.stdout_excerpt == "ok\n"
+    assert result.stdout_excerpt == f"ok{os.linesep}"
     assert result.termination_reason == "exited"
 
 

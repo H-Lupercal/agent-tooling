@@ -1,14 +1,48 @@
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+import install_rehearsal.snapshot as snapshot_module
 from install_rehearsal.snapshot import (
     SnapshotLimitError,
     SnapshotLimits,
     diff_snapshots,
     take_snapshot,
 )
+
+
+def test_path_snapshot_does_not_trust_identityless_directory_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "target"
+    target.write_text("content", encoding="utf-8")
+
+    class IdentitylessEntry:
+        name = target.name
+        path = str(target)
+
+        def stat(self, *, follow_symlinks: bool = True) -> os.stat_result:
+            raise AssertionError("path snapshot must obtain fresh identity metadata")
+
+    class ScandirResult:
+        def __enter__(self) -> Iterator[IdentitylessEntry]:
+            return iter((IdentitylessEntry(),))
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def identityless_scandir(_path: object) -> ScandirResult:
+        return ScandirResult()
+
+    monkeypatch.setattr(snapshot_module, "_SUPPORTS_DESCRIPTOR_WALK", False)
+    monkeypatch.setattr(snapshot_module.os, "scandir", identityless_scandir)
+
+    snapshot = take_snapshot(tmp_path, SnapshotLimits())
+
+    assert snapshot["target"].kind == "file"
+    assert snapshot["target"].size == len("content")
 
 
 def test_delta_classifies_created_modified_and_deleted(tmp_path: Path) -> None:

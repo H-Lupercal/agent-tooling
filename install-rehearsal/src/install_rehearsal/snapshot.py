@@ -182,9 +182,9 @@ def _take_path_snapshot(
         for entry in entries:
             relative = Path(entry.path).relative_to(root).as_posix()
             budget.add_entry()
-            metadata = entry.stat(follow_symlinks=False)
-            mode = stat.S_IMODE(metadata.st_mode)
             path = Path(entry.path)
+            metadata = os.stat(path, follow_symlinks=False)
+            mode = stat.S_IMODE(metadata.st_mode)
             if _is_reparse_point(metadata):
                 target = "<REPARSE_POINT>"
                 state = FileState("symlink", len(target), None, mode, target)
