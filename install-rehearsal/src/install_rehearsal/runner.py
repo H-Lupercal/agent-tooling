@@ -261,19 +261,21 @@ def _stop_process_tree(
         with suppress(subprocess.TimeoutExpired):
             process.wait(timeout=1)
         return
+    kill_process_group = cast(Callable[[int, int], None], os.__dict__["killpg"])
+    sigkill = cast(int, signal.__dict__["SIGKILL"])
     with suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGTERM)
+        kill_process_group(process.pid, signal.SIGTERM)
     with suppress(subprocess.TimeoutExpired):
         process.wait(timeout=1)
     deadline = time.monotonic() + 1
     while time.monotonic() < deadline:
         try:
-            os.killpg(process.pid, 0)
+            kill_process_group(process.pid, 0)
         except ProcessLookupError:
             return
         time.sleep(0.01)
     with suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGKILL)
+        kill_process_group(process.pid, sigkill)
 
 
 def _start_capture_threads(
