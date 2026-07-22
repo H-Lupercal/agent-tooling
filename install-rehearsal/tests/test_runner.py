@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-import time
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -102,20 +102,54 @@ def test_runner_streams_output_without_communicate(
 
 
 def test_timeout_terminates_descendant_process(tmp_path: Path) -> None:
+    ready = tmp_path / "descendant-ready"
+    terminated = tmp_path / "descendant-terminated"
     marker = tmp_path / "descendant-survived"
-    child = f"import pathlib,time; time.sleep(0.3); pathlib.Path({str(marker)!r}).write_text('bad')"
-    parent = (
-        "import subprocess,sys,time; "
-        f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(5)"
+    child = textwrap.dedent(
+        f"""
+        import pathlib
+        import signal
+        import time
+
+        ready = pathlib.Path({str(ready)!r})
+        terminated = pathlib.Path({str(terminated)!r})
+        survived = pathlib.Path({str(marker)!r})
+
+        def stop(*_args):
+            terminated.write_text("yes")
+            raise SystemExit(0)
+
+        signal.signal(signal.SIGTERM, stop)
+        ready.write_text("yes")
+        time.sleep(5)
+        survived.write_text("bad")
+        """
+    )
+    parent = textwrap.dedent(
+        f"""
+        import pathlib
+        import subprocess
+        import sys
+        import time
+
+        ready = pathlib.Path({str(ready)!r})
+        subprocess.Popen([sys.executable, "-c", {child!r}])
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(5)
+        """
     )
 
     result = run_command(
         [sys.executable, "-c", parent],
         cwd=tmp_path,
         environment={},
-        limits=RunLimits(timeout_seconds=0.05, output_bytes=1024),
+        limits=RunLimits(timeout_seconds=1, output_bytes=1024),
     )
-    time.sleep(0.4)
 
     assert result.termination_reason == "timeout"
+    assert ready.exists()
+    if os.name != "nt":
+        assert terminated.exists()
     assert not marker.exists()
