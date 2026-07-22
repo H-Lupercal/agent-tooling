@@ -473,7 +473,11 @@ def _check_policy_canary(
     operation = normalize_operation(
         provider,
         "Task" if provider == "claude" else "spawn_agent",
-        {"model": target.model, "message": "doctor canary"},
+        {
+            "model": target.model,
+            "reasoning_effort": target.reasoning_effort,
+            "message": "doctor canary",
+        },
         envelope,
     )
     enabled = enabled_tiers(config, models_cache)
@@ -485,6 +489,7 @@ def _check_policy_canary(
         snapshot=ReservationSnapshot({}, 0.0, 0.0),
         caller_model=config.tiers[0].model,
         caller_depth=0,
+        caller_effort=config.tiers[0].reasoning_effort,
     )
     coherent = (
         (mode is OperatingMode.ROUTING and result.spec.allowed)

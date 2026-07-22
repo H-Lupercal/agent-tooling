@@ -277,6 +277,52 @@ def test_pricing_rejects_negative_or_non_finite_values(value: float) -> None:
         Pricing.model_validate(payload)
 
 
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh", "max", "ultra"])
+def test_tier_accepts_canonical_effort_levels(effort: str) -> None:
+    from conductor.schemas import TierConfig
+
+    payload = valid_config()["tiers"][0]
+    payload.update(
+        reasoning_effort=effort,
+        generation_rank=56,
+        capability_rank=100,
+    )
+
+    tier = TierConfig.model_validate(payload)
+
+    assert tier.reasoning_effort == effort
+    assert tier.supports_effort(effort)
+
+
+@pytest.mark.parametrize("field", ["generation_rank", "capability_rank"])
+def test_model_authority_ranks_must_be_positive(field: str) -> None:
+    from conductor.schemas import TierConfig
+
+    payload = valid_config()["tiers"][0]
+    payload[field] = 0
+
+    with pytest.raises(ValidationError):
+        TierConfig.model_validate(payload)
+
+
+def test_legacy_tier_authority_defaults_preserve_config_compatibility() -> None:
+    from conductor.schemas import TierConfig
+
+    tier = TierConfig.model_validate(valid_config()["tiers"][0])
+
+    assert tier.generation_rank is None
+    assert tier.effective_capability_rank == tier.relative_cost_weight
+
+
+def test_tier_may_own_no_task_class_recommendations() -> None:
+    from conductor.schemas import TierConfig
+
+    payload = valid_config()["tiers"][0]
+    payload["task_classes"] = []
+
+    assert TierConfig.model_validate(payload).task_classes == ()
+
+
 @pytest.mark.parametrize(
     "run_id", ["", "../escape", "/absolute", "contains space", "x" * 129]
 )

@@ -25,6 +25,8 @@ DEFAULT_CONFIG = textwrap.dedent(
     [[tiers]]
     name = "frontier"
     model = "gpt-5.5"
+    generation_rank = 55
+    capability_rank = 90
     reasoning_effort = "high"
     enabled = "always"
     relative_cost_weight = 100
@@ -42,6 +44,8 @@ DEFAULT_CONFIG = textwrap.dedent(
     [[tiers]]
     name = "standard"
     model = "gpt-5.4"
+    generation_rank = 54
+    capability_rank = 70
     reasoning_effort = "medium"
     enabled = "always"
     relative_cost_weight = 25
@@ -59,6 +63,8 @@ DEFAULT_CONFIG = textwrap.dedent(
     [[tiers]]
     name = "mini"
     model = "gpt-5.4-mini"
+    generation_rank = 54
+    capability_rank = 40
     reasoning_effort = "medium"
     enabled = "auto"
     relative_cost_weight = 6
@@ -76,6 +82,8 @@ DEFAULT_CONFIG = textwrap.dedent(
     [[tiers]]
     name = "spark"
     model = "gpt-5.3-codex-spark"
+    generation_rank = 53
+    capability_rank = 20
     reasoning_effort = "low"
     enabled = "auto"
     relative_cost_weight = 2

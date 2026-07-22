@@ -53,7 +53,7 @@ def _setup(tmp_path: Path, *, mode: OperatingMode = OperatingMode.ROUTING):
         mode=run.mode.value,
         context=run.model_dump(mode="json"),
     )
-    caller = Caller("root-run", "root-run", 0, 0, "gpt-5.5")
+    caller = Caller("root-run", "root-run", 0, 0, "gpt-5.5", "high")
     return config, run, store, caller
 
 
@@ -87,7 +87,7 @@ def test_hook_policy_and_reservation_are_one_idempotent_transaction(
 
     config = load_config(tmp_path / "conductor.toml")
     run = store.run_context("root-run")
-    caller = Caller("root-run", "root-run", 0, 0, "gpt-5.5")
+    caller = Caller("root-run", "root-run", 0, 0, "gpt-5.5", "high")
     duplicate = decide(
         payload,
         config,
@@ -104,6 +104,9 @@ def test_hook_policy_and_reservation_are_one_idempotent_transaction(
     assert duplicate == decision
     assert store.decision_count(run_id="root-run") == 1
     assert store.reserved_count(run_id="root-run") == 1
+    reservation = store.reservation("implementation-task", run_id="root-run")
+    assert reservation.model == "gpt-5.4"
+    assert reservation.reasoning_effort == "medium"
 
 
 def test_malformed_governed_payload_is_persisted_as_a_denial(

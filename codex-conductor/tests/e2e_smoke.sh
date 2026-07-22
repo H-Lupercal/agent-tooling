@@ -41,13 +41,13 @@ printf '%s\n' 'Preserve this operator policy.' >"$HOME/AGENTS.md"
 
 "$VENV_CONDUCTOR" install --codex-home "$HOME/.codex" --agents-path "$HOME/AGENTS.md"
 verify_pricing "$HOME/.codex/conductor/conductor.toml"
-printf '%s\n' '{"models":[{"slug":"gpt-5.5"},{"slug":"gpt-5.4"},{"slug":"gpt-5.4-mini"},{"slug":"gpt-5.3-codex-spark"}]}' >"$HOME/.codex/models_cache.json"
+printf '%s\n' '{"models":[{"slug":"gpt-5.6-sol"},{"slug":"gpt-5.6-terra"},{"slug":"gpt-5.5"},{"slug":"gpt-5.4"},{"slug":"gpt-5.4-mini"},{"slug":"gpt-5.3-codex-spark"}]}' >"$HOME/.codex/models_cache.json"
 
-printf '%s\n' '{"session_id":"e2e-run","model":"gpt-5.5"}' \
+printf '%s\n' '{"session_id":"e2e-run","model":"gpt-5.6-sol","reasoning_effort":"ultra"}' \
   | "$VENV_PY" "$HOME/.codex/conductor/hooks/session_start.py" \
   | "$VENV_PY" -c 'import json,sys; assert json.load(sys.stdin) == {}'
 
-printf '%s\n' '{"session_id":"e2e-run","tool_use_id":"e2e-call","model":"gpt-5.5","tool_name":"spawn_agent","tool_input":{"task_name":"risk-task","message":"<CONDUCTOR_TASK>{\"schema_version\":1,\"task_name\":\"risk-task\",\"task_class\":\"high_risk\",\"risk_triggers\":[],\"owned_paths\":[\"src/risk.py\"],\"acceptance_checks\":[\"pytest -q\"],\"new_task\":true}</CONDUCTOR_TASK>"}}' \
+printf '%s\n' '{"session_id":"e2e-run","tool_use_id":"e2e-call","model":"gpt-5.6-sol","reasoning_effort":"ultra","tool_name":"spawn_agent","tool_input":{"task_name":"risk-task","fork_turns":"all","message":"<CONDUCTOR_TASK>{\"schema_version\":1,\"task_name\":\"risk-task\",\"task_class\":\"high_risk\",\"risk_triggers\":[],\"owned_paths\":[\"src/risk.py\"],\"acceptance_checks\":[\"pytest -q\"],\"new_task\":true}</CONDUCTOR_TASK>"}}' \
   | "$VENV_PY" "$HOME/.codex/conductor/hooks/pre_tool_use.py" \
   | "$VENV_PY" -c 'import json,sys; result=json.load(sys.stdin); output=result["hookSpecificOutput"]; assert output == {"hookEventName":"PreToolUse","permissionDecision":"allow"}, result'
 
@@ -55,11 +55,11 @@ printf '%s\n' '{"hook_event_name":"PostToolUse","session_id":"e2e-run","tool_use
   | "$VENV_PY" "$HOME/.codex/conductor/hooks/lifecycle.py" \
   | "$VENV_PY" -c 'import json,sys; assert json.load(sys.stdin) == {}'
 
-printf '%s\n' '{"hook_event_name":"SubagentStart","session_id":"e2e-run","agent_id":"e2e-child","model":"gpt-5.5"}' \
+printf '%s\n' '{"hook_event_name":"SubagentStart","session_id":"e2e-run","agent_id":"e2e-child","model":"gpt-5.6-sol"}' \
   | "$VENV_PY" "$HOME/.codex/conductor/hooks/lifecycle.py" \
   | "$VENV_PY" -c 'import json,sys; assert json.load(sys.stdin) == {}'
 
-printf '%s\n' '{"hook_event_name":"SubagentStop","session_id":"e2e-run","agent_id":"e2e-child","model":"gpt-5.5","status":"completed","usage":{"input_tokens":1000,"cached_input_tokens":100,"output_tokens":100,"reasoning_output_tokens":10}}' \
+printf '%s\n' '{"hook_event_name":"SubagentStop","session_id":"e2e-run","agent_id":"e2e-child","model":"gpt-5.6-sol","status":"completed","usage":{"input_tokens":1000,"cached_input_tokens":100,"output_tokens":100,"reasoning_output_tokens":10}}' \
   | "$VENV_PY" "$HOME/.codex/conductor/hooks/lifecycle.py" \
   | "$VENV_PY" -c 'import json,sys; assert json.load(sys.stdin) == {}'
 

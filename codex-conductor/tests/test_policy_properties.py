@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from conductor.config import ConductorConfig
 from conductor.policy import evaluate_policy
 from conductor.schemas import (
+    REASONING_EFFORTS,
     NormalizedOperation,
     Provider,
     RawUsage,
@@ -49,7 +50,11 @@ OPERATION = NormalizedOperation(
     provider=Provider.CODEX,
     operation="spawn",
     raw_tool_name="spawn_agent",
-    payload={"model": "gpt-5.4", "message": "bounded"},
+    payload={
+        "model": "gpt-5.4",
+        "reasoning_effort": "medium",
+        "message": "bounded",
+    },
     envelope=ENVELOPE,
     is_new_work=True,
     correlation_id="property-call",
@@ -74,6 +79,7 @@ def test_enforced_budget_never_allows_an_over_cap_snapshot(
         enabled_tiers=(0, 1, 2, 3),
         snapshot=ReservationSnapshot({}, reserved, spent),
         caller_model="gpt-5.5",
+        caller_effort="high",
         caller_depth=0,
     )
     projected = spent + reserved + CONFIG.tiers[1].est_task_usd
@@ -92,11 +98,56 @@ def test_unbounded_depth_never_reaches_capacity_or_budget(depth: int) -> None:
         enabled_tiers=(0, 1, 2, 3),
         snapshot=ReservationSnapshot({}, 0.0, 0.0),
         caller_model="gpt-5.5",
+        caller_effort="high",
         caller_depth=depth,
     )
 
     assert result.spec.allowed is False
     assert result.spec.rule == "DEPTH_LIMIT"
+
+
+@given(
+    caller_index=st.sampled_from((0, 1, 2)),
+    target_index=st.sampled_from((0, 1, 2, 3)),
+    caller_effort=st.sampled_from(REASONING_EFFORTS),
+    target_effort=st.sampled_from(REASONING_EFFORTS),
+)
+def test_every_allowed_codex_child_stays_within_caller_authority(
+    caller_index: int,
+    target_index: int,
+    caller_effort: str,
+    target_effort: str,
+) -> None:
+    caller = CONFIG.tiers[caller_index]
+    target = CONFIG.tiers[target_index]
+    operation = OPERATION.model_copy(
+        update={
+            "payload": {
+                **OPERATION.payload,
+                "model": target.model,
+                "reasoning_effort": target_effort,
+            }
+        }
+    )
+
+    result = evaluate_policy(
+        operation=operation,
+        run=RUN,
+        config=CONFIG,
+        enabled_tiers=(0, 1, 2, 3),
+        snapshot=ReservationSnapshot({}, 0.0, 0.0),
+        caller_model=caller.model,
+        caller_effort=caller_effort,
+        caller_depth=0,
+    )
+
+    if result.spec.allowed:
+        assert target.generation_rank <= caller.generation_rank
+        assert target.effective_capability_rank <= caller.effective_capability_rank
+        assert REASONING_EFFORTS.index(target_effort) <= REASONING_EFFORTS.index(
+            caller_effort
+        )
+        assert target.supports_effort(target_effort)
 
 
 @pytest.mark.parametrize("value", [2**63, 10**100])

@@ -18,6 +18,7 @@ from conductor.errors import StateError, StoreBusyError
 from conductor.migrations import apply_migrations
 from conductor.path_guard import is_unsafe_path_redirect
 from conductor.schemas import (
+    REASONING_EFFORTS,
     Decision,
     LifecycleEvent,
     OperatingMode,
@@ -48,6 +49,7 @@ class ReservationRequest:
     ttl_seconds: int
     generation: int
     mode: str
+    reasoning_effort: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("run_id", "task_id", "idempotency_key", "tier"):
@@ -68,6 +70,11 @@ class ReservationRequest:
             raise ValueError("ttl_seconds must be positive")
         if not isinstance(self.generation, int) or self.generation < 1:
             raise ValueError("generation must be positive")
+        if (
+            self.reasoning_effort is not None
+            and self.reasoning_effort not in REASONING_EFFORTS
+        ):
+            raise ValueError("reasoning_effort must be canonical or None")
 
 
 @dataclass(frozen=True)
@@ -390,9 +397,9 @@ class Store:
                     """
                     INSERT INTO reservations (
                         reservation_id, run_id, task_id, correlation_id, operation,
-                        tier, model, estimated_usd, state, recoverable,
+                        tier, model, reasoning_effort, estimated_usd, state, recoverable,
                         recovery_reason, created_at, updated_at, expires_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', 0, NULL, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 0, NULL, ?, ?, ?)
                     """,
                     (
                         reservation_id,
@@ -402,6 +409,7 @@ class Store:
                         request.operation,
                         request.tier,
                         request.model,
+                        request.reasoning_effort,
                         request.estimated_usd,
                         now,
                         now,
@@ -1045,6 +1053,7 @@ def _reservation_from_row(row: sqlite3.Row) -> Reservation:
         operation=row["operation"],
         tier=row["tier"],
         model=row["model"],
+        reasoning_effort=row["reasoning_effort"],
         estimated_usd=float(row["estimated_usd"]),
         state=row["state"],
         correlation_id=row["correlation_id"],

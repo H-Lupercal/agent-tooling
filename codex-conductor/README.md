@@ -104,17 +104,17 @@ Every run records one provider mode:
 
 | Mode | What Conductor can truthfully do |
 |---|---|
-| `routing` | Validate and enforce the selected child model, reserve capacity, and correlate lifecycle cost. |
+| `routing` | Validate and enforce the selected child model and effort, reserve capacity, and correlate lifecycle cost. |
 | `admission` | Allow or deny a launch, but not assert that a cheaper child model was selected. |
 | `observe` | Record observations; never claim a block or reservation was enforced. |
 | `unsupported` | Deny new governed work because required identity or lifecycle capability is absent. |
 
-The packaged Codex contract is admission-only because its spawn input has no
-child-model selector. It permits the bounded root same-tier exception while
-reserving conservative frontier capacity and cost, but a cross-tier Codex
-delegation is denied with `ROUTING_REQUIRED` instead of being counted as
-fictitious savings. Claude's `Task` input exposes a model selector and can
-operate in routing mode when its exact PostToolUse child-ID link is present.
+The packaged Codex contract exposes child `model` and `reasoning_effort`
+selectors and can operate in routing mode when its exact lifecycle link is
+present. The orchestrator chooses both values from task context; Conductor
+validates that request unchanged and never picks or rewrites a worker. A
+`fork_turns="all"` spawn with neither override safely inherits both values.
+Claude's existing `Task` model-routing behavior is unchanged in this release.
 
 Non-governed tools and ordinary feedback messages bypass policy and state.
 Unexpected failures deny new governed work safely; they do not block unrelated
@@ -138,7 +138,9 @@ Policy evaluation is ordered and stable. Important decision rules include:
 
 - `MISSING_ENVELOPE`, `INVALID_ENVELOPE`, `ENVELOPE_OVERSIZED`;
 - `DEPTH_LIMIT`, `CALLER_MAY_NOT_SPAWN`, `UNKNOWN_CALLER_MODEL`;
-- `FRONTIER_UNAVAILABLE`, `STRONGER_CHILD_FORBIDDEN`,
+- `MISSING_MODEL_SELECTION`, `MISSING_EFFORT_SELECTION`;
+- `MODEL_GENERATION_CEILING`, `MODEL_CAPABILITY_CEILING`, `EFFORT_CEILING`;
+- `UNSUPPORTED_MODEL_EFFORT`, `FRONTIER_UNAVAILABLE`,
   `STRICTLY_CHEAPER_REQUIRED`, `SAME_TIER_LIMIT`;
 - `MODEL_MISMATCH`, `ROUTING_REQUIRED`;
 - `CONCURRENCY_CAP`, `BUDGET_CAP`, `BUDGET_CAP_WARNING`;
@@ -154,11 +156,30 @@ Installed configuration lives at:
 - Codex: `~/.codex/conductor/conductor.toml`
 - Claude: `~/.claude/conductor/conductor.toml`
 
-Tiers are ordered strongest to cheapest. Their task classes must form an exact
-partition; model IDs and tier names must be unique; relative cost weights must
-strictly decrease. `enabled` is `always`, `auto`, or `never`. Codex auto tiers
-are enabled only when the exact model slug is present in the configured model
-cache.
+Tiers are ordered by policy preference. Their task classes must form an exact
+partition, although compatibility models may have no recommended classes;
+model IDs and tier names must be unique; relative cost weights must be
+non-increasing. Explicit generation and capability ranks define authority
+without guessing from model names. Legacy configuration remains loadable, but
+cross-model Codex routing fails closed until missing generation authority is
+made explicit. `enabled` is `always`, `auto`, or `never`.
+Codex auto tiers are enabled only when the exact model slug is present in the
+configured model cache.
+
+The bundled Codex ladder starts with GPT-5.6 Sol, uses GPT-5.6 Terra for
+everyday implementation, and recognizes GPT-5.6 Luna plus older models. The
+caller is always the ceiling: a GPT-5.5 caller cannot spawn any GPT-5.6 worker,
+and worker effort cannot exceed caller effort. This ceiling is transitive.
+
+OpenAI's Codex pricing page says GPT-5.6 Sol has the
+same ChatGPT credit rates as GPT-5.5 (125 input, 12.5 cached input, and 750
+output credits per million tokens). That makes Sol the logical default when
+both are permitted. Terra was listed at half those rates and described as the
+starting point for work previously assigned to GPT-5.5. ChatGPT credits are
+not API dollars, so bundled dollar prices remain zero and must be configured
+from rates that actually apply to the account. See
+[Codex pricing](https://developers.openai.com/codex/pricing) and
+[Codex models](https://developers.openai.com/codex/models).
 
 The bundled model IDs are examples for the supported contract, and bundled
 prices deliberately start at zero. Configure rates that apply to your account

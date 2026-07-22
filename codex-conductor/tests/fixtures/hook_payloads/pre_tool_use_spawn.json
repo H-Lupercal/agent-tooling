@@ -1,6 +1,7 @@
 {
   "hook_event_name": "PreToolUse",
   "model": "gpt-5.5",
+  "reasoning_effort": "high",
   "thread_id": "root-run",
   "root_thread_id": "root-run",
   "agent_transcript_path": "tests/fixtures/rollout_root.jsonl",
@@ -8,6 +9,7 @@
   "tool_input": {
     "task_name": "tests_ledger",
     "model": "gpt-5.4",
+    "reasoning_effort": "medium",
     "message": "<CONDUCTOR_TASK>{\"schema_version\":1,\"task_name\":\"tests_ledger\",\"task_class\":\"tests\",\"risk_triggers\":[],\"owned_paths\":[\"tests/test_ledger.py\"],\"acceptance_checks\":[\"python3 -m unittest tests.test_ledger -v\"],\"new_task\":true}</CONDUCTOR_TASK>\nImplement ledger tests."
   }
 }

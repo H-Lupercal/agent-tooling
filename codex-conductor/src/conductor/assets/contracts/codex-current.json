@@ -23,7 +23,15 @@
         "properties": {
           "task_name": {"type": "string", "minLength": 1, "maxLength": 128},
           "message": {"type": "string", "minLength": 1},
-          "fork_turns": {"type": "string"}
+          "fork_turns": {"type": "string"},
+          "model": {
+            "type": "string",
+            "enum": ["gpt-5.6-sol", "gpt-5.6-terra"]
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "xhigh", "max", "ultra"]
+          }
         },
         "additionalProperties": false
       }
@@ -68,7 +76,8 @@
       }
     }
   ],
-  "model_selector_path": null,
+  "model_selector_path": "model",
+  "reasoning_effort_selector_path": "reasoning_effort",
   "correlation_fields": {
     "run_id": ["session_id", "thread_id"],
     "caller_id": ["agent_id"],

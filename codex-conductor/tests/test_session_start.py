@@ -35,7 +35,7 @@ def test_session_start_persists_one_strict_leased_context(tmp_path: Path) -> Non
         restore_env(old)
 
     assert context.run_id == "run-session"
-    assert context.mode.value == "admission"
+    assert context.mode.value == "routing"
     assert store.run_context("run-session") == context
     assert (
         read_run_context(home / "state" / "run-session" / "run_context.json") == context

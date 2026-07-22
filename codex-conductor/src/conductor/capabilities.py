@@ -10,6 +10,7 @@ from conductor.errors import UnsupportedCapabilityError
 from conductor.schemas import (
     CapabilityContract,
     OperatingMode,
+    Provider,
     ToolContract,
 )
 
@@ -45,6 +46,12 @@ def contract_mode(contract: CapabilityContract) -> OperatingMode:
         _schema_has_path(tool, contract.model_selector_path) for tool in contract.tools
     ):
         return OperatingMode.UNSUPPORTED
+    if contract.provider is Provider.CODEX:
+        effort_selector = contract.reasoning_effort_selector_path
+        if effort_selector is None:
+            return OperatingMode.ADMISSION
+        if not any(_schema_has_path(tool, effort_selector) for tool in contract.tools):
+            return OperatingMode.UNSUPPORTED
     return OperatingMode.ROUTING
 
 
@@ -167,13 +174,33 @@ def negotiate(contract: CapabilityContract, payload: object) -> CapabilityResult
             tool.canonical_name.value,
             "declared child-model selector is absent from the tool-input schema",
         )
+    if contract.provider is Provider.CODEX:
+        effort_selector = contract.reasoning_effort_selector_path
+        if effort_selector is None:
+            return _result(
+                contract,
+                digest,
+                OperatingMode.ADMISSION,
+                False,
+                tool.canonical_name.value,
+                "Codex can block work but exposes no reasoning-effort selector",
+            )
+        if not _schema_has_path(tool, effort_selector):
+            return _result(
+                contract,
+                digest,
+                OperatingMode.UNSUPPORTED,
+                False,
+                tool.canonical_name.value,
+                "declared reasoning-effort selector is absent from the tool-input schema",
+            )
     return _result(
         contract,
         digest,
         OperatingMode.ROUTING,
         True,
         tool.canonical_name.value,
-        "provider exposes an enforceable child-model selector and correlated lifecycle",
+        "provider exposes enforceable worker selectors and correlated lifecycle",
     )
 
 

@@ -15,16 +15,68 @@ def fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
 
-def test_current_codex_contract_selects_admission_without_model_field() -> None:
+def test_current_codex_contract_routes_verified_model_and_effort_fields() -> None:
     from conductor.capabilities import load_contract, negotiate
 
     contract = load_contract("codex-current")
     result = negotiate(contract, fixture("codex-spawn"))
 
-    assert result.mode == OperatingMode.ADMISSION
-    assert result.child_model_selectable is False
+    assert result.mode == OperatingMode.ROUTING
+    assert result.child_model_selectable is True
     spawn = next(tool for tool in contract.tools if tool.canonical_name == "spawn")
-    assert "model" not in spawn.input_schema["properties"]
+    properties = spawn.input_schema["properties"]
+    assert properties["model"]["enum"] == ["gpt-5.6-sol", "gpt-5.6-terra"]
+    assert properties["reasoning_effort"]["enum"] == [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra",
+    ]
+    assert contract.model_selector_path == "model"
+    assert contract.reasoning_effort_selector_path == "reasoning_effort"
+
+
+def test_codex_contract_without_effort_control_cannot_claim_routing() -> None:
+    from conductor.capabilities import contract_mode, load_contract
+
+    contract = load_contract("codex-current")
+    missing_declaration = contract.model_copy(
+        update={"reasoning_effort_selector_path": None}
+    )
+    spawn = next(tool for tool in contract.tools if tool.canonical_name == "spawn")
+    properties = dict(spawn.input_schema["properties"])
+    properties.pop("reasoning_effort")
+    missing_schema = contract.model_copy(
+        update={
+            "tools": tuple(
+                tool.model_copy(
+                    update={
+                        "input_schema": {
+                            **tool.input_schema,
+                            "properties": properties,
+                        }
+                    }
+                )
+                if tool.canonical_name == "spawn"
+                else tool
+                for tool in contract.tools
+            )
+        }
+    )
+
+    assert contract_mode(missing_declaration) is OperatingMode.ADMISSION
+    assert contract_mode(missing_schema) is OperatingMode.UNSUPPORTED
+
+
+def test_claude_keeps_existing_model_only_routing_contract() -> None:
+    from conductor.capabilities import contract_mode, load_contract
+
+    contract = load_contract("claude-current")
+
+    assert contract.reasoning_effort_selector_path is None
+    assert contract_mode(contract) is OperatingMode.ROUTING
 
 
 def test_current_codex_contract_declares_current_hook_wire_fields() -> None:

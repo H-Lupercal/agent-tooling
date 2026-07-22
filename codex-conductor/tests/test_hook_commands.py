@@ -81,12 +81,17 @@ def test_codex_provider_accepts_current_documented_hook_identifiers(
     from conductor.providers.codex import PROVIDER
 
     config = load_config(write_config(tmp_path / "conductor.toml", DEFAULT_CONFIG))
-    payload = {"session_id": "codex-session", "model": "gpt-5.5"}
+    payload = {
+        "session_id": "codex-session",
+        "model": "gpt-5.5",
+        "reasoning_effort": "high",
+    }
 
     assert PROVIDER.session_run_id(payload) == "codex-session"
     caller = PROVIDER.resolve_caller(payload, config)
     assert caller.run_id == "codex-session"
     assert caller.thread_id == "codex-session"
+    assert caller.effort == "high"
     link = PROVIDER.correlation_link(
         {
             "session_id": "codex-session",
@@ -164,6 +169,7 @@ def test_hook_entrypoints_initialize_deny_and_record_without_raising(
             "thread_id": "hook-run",
             "root_thread_id": "hook-run",
             "model": "gpt-5.5",
+            "reasoning_effort": "high",
         }
         rc, response = _invoke(session_main, session)
         assert rc == 0 and response == {}
@@ -191,7 +197,11 @@ def test_hook_entrypoints_initialize_deny_and_record_without_raising(
                 **session,
                 "tool_call_id": "hook-call",
                 "tool_name": "spawn_agent",
-                "tool_input": {"task_name": "risk-task", "message": envelope},
+                "tool_input": {
+                    "task_name": "risk-task",
+                    "message": envelope,
+                    "fork_turns": "all",
+                },
             },
         )
         assert governed_rc == 0
@@ -245,6 +255,7 @@ def test_active_pre_tool_hook_renews_an_expired_run_lease(tmp_path: Path) -> Non
             "thread_id": "renew-run",
             "root_thread_id": "renew-run",
             "model": "gpt-5.5",
+            "reasoning_effort": "high",
         }
         assert _invoke(session_main, session)[0] == 0
         database = home / "state" / "conductor.db"
@@ -268,7 +279,11 @@ def test_active_pre_tool_hook_renews_an_expired_run_lease(tmp_path: Path) -> Non
                 **session,
                 "tool_call_id": "renew-call",
                 "tool_name": "spawn_agent",
-                "tool_input": {"task_name": "risk-task", "message": envelope},
+                "tool_input": {
+                    "task_name": "risk-task",
+                    "message": envelope,
+                    "fork_turns": "all",
+                },
             },
         )
 

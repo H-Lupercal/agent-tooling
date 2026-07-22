@@ -53,6 +53,9 @@ HIGH_RISK_TRIGGERS = (
     "production configuration",
 )
 
+REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")
+ReasoningEffort = Literal["low", "medium", "high", "xhigh", "max", "ultra"]
+
 
 Identifier = Annotated[
     StrictStr,
@@ -160,16 +163,16 @@ class PolicyConfig(StrictModel):
 class TierConfig(StrictModel):
     name: Identifier
     model: BoundedString
-    reasoning_effort: Literal["low", "medium", "high"]
+    generation_rank: PositiveInt | None = None
+    capability_rank: PositiveInt | None = None
+    reasoning_effort: ReasoningEffort
     enabled: Literal["always", "auto", "never"]
     pricing: Pricing
     relative_cost_weight: PositiveInt
     est_task_usd: FiniteNonNegativeFloat
     max_concurrent: Annotated[StrictInt, Field(ge=1, le=10000)]
     may_spawn: StrictBool
-    task_classes: Annotated[
-        tuple[BoundedString, ...], Field(min_length=1, max_length=64)
-    ]
+    task_classes: Annotated[tuple[BoundedString, ...], Field(max_length=64)]
 
     @field_validator("task_classes")
     @classmethod
@@ -194,6 +197,19 @@ class TierConfig(StrictModel):
     def output_usd_per_mtok(self) -> float:
         return self.pricing.output_usd_per_mtok
 
+    @property
+    def effective_capability_rank(self) -> int:
+        """Return explicit authority, or preserve legacy cost ordering."""
+        return self.capability_rank or self.relative_cost_weight
+
+    def supports_effort(self, effort: str) -> bool:
+        try:
+            return REASONING_EFFORTS.index(effort) <= REASONING_EFFORTS.index(
+                self.reasoning_effort
+            )
+        except ValueError:
+            return False
+
 
 class ConductorConfig(StrictModel):
     schema_version: Literal[2]
@@ -212,10 +228,8 @@ class ConductorConfig(StrictModel):
             raise ValueError("tiers must have unique models")
 
         for stronger, weaker in zip(self.tiers, self.tiers[1:], strict=False):
-            if weaker.relative_cost_weight >= stronger.relative_cost_weight:
-                raise ValueError(
-                    "tier relative_cost_weight must be strictly decreasing"
-                )
+            if weaker.relative_cost_weight > stronger.relative_cost_weight:
+                raise ValueError("tier relative_cost_weight must be non-increasing")
 
         owners: dict[str, list[str]] = {}
         for tier in self.tiers:
@@ -280,6 +294,7 @@ class CapabilityContract(StrictModel):
     hook_events: Annotated[tuple[BoundedString, ...], Field(max_length=64)]
     tools: Annotated[tuple[ToolContract, ...], Field(max_length=64)]
     model_selector_path: BoundedString | None
+    reasoning_effort_selector_path: BoundedString | None = None
     correlation_fields: CorrelationFields
     usage_fields: Annotated[tuple[BoundedString, ...], Field(max_length=64)]
     decision_response_schema: dict[str, Any]
@@ -420,6 +435,7 @@ class Reservation(StrictModel):
     operation: OperationName
     tier: Identifier | None
     model: BoundedString | None
+    reasoning_effort: ReasoningEffort | None = None
     estimated_usd: FiniteNonNegativeFloat
     state: ReservationState
     correlation_id: Identifier | None

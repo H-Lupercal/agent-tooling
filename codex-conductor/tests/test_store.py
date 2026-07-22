@@ -24,6 +24,7 @@ def request(
     ttl_seconds: int = 300,
     generation: int = 1,
     model: str = "gpt-5.4-mini",
+    reasoning_effort: str | None = None,
 ):
     from conductor.store import ReservationRequest
 
@@ -39,10 +40,11 @@ def request(
         ttl_seconds=ttl_seconds,
         generation=generation,
         mode="admission",
+        reasoning_effort=reasoning_effort,
     )
 
 
-def test_store_enables_wal_foreign_keys_and_complete_v3_schema(
+def test_store_enables_wal_foreign_keys_and_complete_v4_schema(
     store_path: Path,
 ) -> None:
     from conductor.migrations import SCHEMA_VERSION
@@ -50,7 +52,7 @@ def test_store_enables_wal_foreign_keys_and_complete_v3_schema(
 
     store = Store(store_path)
 
-    assert store.schema_version() == SCHEMA_VERSION == 3
+    assert store.schema_version() == SCHEMA_VERSION == 4
     assert store.journal_mode().lower() == "wal"
     assert store.foreign_keys_enabled() is True
     assert store.table_names() >= {
@@ -86,9 +88,80 @@ def test_existing_v1_database_migrates_forward_without_legacy_runtime(
 
     store = Store(store_path)
 
-    assert store.schema_version() == 3
+    assert store.schema_version() == 4
     assert "correlation_aliases" in store.table_names()
     assert "legacy_events" not in store.table_names()
+
+
+def test_reservation_round_trips_reasoning_effort(store_path: Path) -> None:
+    from conductor.store import Store
+
+    store = Store(store_path)
+    store.create_run("run-effort", provider="codex", generation=1, mode="routing")
+
+    decision = store.reserve(
+        request("run-effort", "task-effort", reasoning_effort="medium"),
+        concurrency_cap=2,
+        budget_cap=10.0,
+    )
+
+    assert decision.allowed
+    assert store.reservation("task-effort", run_id="run-effort").reasoning_effort == (
+        "medium"
+    )
+
+
+def test_existing_v3_reservation_migrates_with_unknown_effort(
+    store_path: Path,
+) -> None:
+    from conductor.migrations import MIGRATIONS
+    from conductor.store import Store
+
+    store_path.parent.mkdir(parents=True)
+    connection = sqlite3.connect(store_path, isolation_level=None)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        for version in (1, 2, 3):
+            for statement in MIGRATIONS[version]:
+                connection.execute(statement)
+        connection.execute(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, NULL, ?, ?)",
+            ("run-v3", "codex", 1, "admission", 1_000.0, 1_000.0),
+        )
+        connection.execute(
+            """
+            INSERT INTO reservations (
+                reservation_id, run_id, task_id, correlation_id, operation,
+                tier, model, estimated_usd, state, recoverable, recovery_reason,
+                created_at, updated_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "reservation-v3",
+                "run-v3",
+                "task-v3",
+                "call-v3",
+                "spawn",
+                "mini",
+                "gpt-5.4-mini",
+                0.15,
+                "approved",
+                0,
+                None,
+                1_000.0,
+                1_000.0,
+                1_300.0,
+            ),
+        )
+        connection.execute("PRAGMA user_version = 3")
+        connection.commit()
+    finally:
+        connection.close()
+
+    store = Store(store_path)
+
+    assert store.schema_version() == 4
+    assert store.reservation("task-v3", run_id="run-v3").reasoning_effort is None
 
 
 def test_decide_and_reserve_is_idempotent(store_path: Path) -> None:

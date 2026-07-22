@@ -51,12 +51,17 @@ def decide(
         from conductor.providers import get_provider
 
         provider_request = get_provider(provider).normalize_request(payload)
-        if provider_request.requested_model is not None:
+        if (
+            provider_request.requested_model is not None
+            or provider_request.requested_effort is not None
+        ):
             operation_data = operation.model_dump(mode="python")
-            operation_data["payload"] = {
-                **operation.payload,
-                "model": provider_request.requested_model,
-            }
+            request_fields = {}
+            if provider_request.requested_model is not None:
+                request_fields["model"] = provider_request.requested_model
+            if provider_request.requested_effort is not None:
+                request_fields["reasoning_effort"] = provider_request.requested_effort
+            operation_data["payload"] = {**operation.payload, **request_fields}
             operation = NormalizedOperation.model_validate(operation_data)
 
     if operation is None or not operation.is_new_work:
@@ -148,6 +153,7 @@ def _persist(
         snapshot=empty,
         caller_model=caller.model,
         caller_depth=caller.depth,
+        caller_effort=caller.effort,
     )
     caller_tier = config.tier_for_model(caller.model)
     tier = preview.tier or caller_tier or config.tiers[0]
@@ -168,6 +174,7 @@ def _persist(
         ttl_seconds=config.policy.reservation_ttl_seconds,
         generation=run.generation,
         mode=run.mode.value,
+        reasoning_effort=preview.reasoning_effort,
     )
 
     def evaluator(snapshot: ReservationSnapshot) -> DecisionSpec:
@@ -181,6 +188,7 @@ def _persist(
             snapshot=snapshot,
             caller_model=caller.model,
             caller_depth=caller.depth,
+            caller_effort=caller.effort,
         ).spec
 
     return store.decide_and_reserve(request, evaluator)

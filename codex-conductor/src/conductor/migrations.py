@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 MIGRATIONS: dict[int, tuple[str, ...]] = {
@@ -154,6 +154,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "CREATE INDEX IF NOT EXISTS correlation_alias_reservation_idx ON correlation_aliases(reservation_id)",
     ),
     3: ("DROP TABLE IF EXISTS legacy_events",),
+    4: ("ALTER TABLE reservations ADD COLUMN reasoning_effort TEXT",),
 }
 
 

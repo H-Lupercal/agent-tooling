@@ -1,4 +1,4 @@
-# codex-conductor v2 admission policy. Configure verified prices before reporting cost.
+# codex-conductor v2 Codex routing policy. Verify prices before reporting cost.
 schema_version = 2
 
 [budget]
@@ -14,8 +14,10 @@ minimum_mode = "admission"
 
 [[tiers]]
 name = "frontier"
-model = "gpt-5.5"
-reasoning_effort = "high"
+model = "gpt-5.6-sol"
+generation_rank = 56
+capability_rank = 100
+reasoning_effort = "ultra"
 enabled = "always"
 relative_cost_weight = 100
 est_task_usd = 2.00
@@ -30,11 +32,32 @@ cache_write_usd_per_mtok = 0.0
 output_usd_per_mtok = 0.0
 
 [[tiers]]
+name = "legacy_frontier"
+model = "gpt-5.5"
+generation_rank = 55
+capability_rank = 90
+reasoning_effort = "high"
+enabled = "auto"
+relative_cost_weight = 100
+est_task_usd = 2.00
+max_concurrent = 2
+may_spawn = true
+task_classes = []
+
+[tiers.pricing]
+input_usd_per_mtok = 0.0
+cache_read_usd_per_mtok = 0.0
+cache_write_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+
+[[tiers]]
 name = "standard"
-model = "gpt-5.4"
-reasoning_effort = "medium"
+model = "gpt-5.6-terra"
+generation_rank = 56
+capability_rank = 80
+reasoning_effort = "high"
 enabled = "always"
-relative_cost_weight = 25
+relative_cost_weight = 50
 est_task_usd = 0.60
 max_concurrent = 4
 may_spawn = true
@@ -47,11 +70,32 @@ cache_write_usd_per_mtok = 0.0
 output_usd_per_mtok = 0.0
 
 [[tiers]]
+name = "legacy_standard"
+model = "gpt-5.4"
+generation_rank = 54
+capability_rank = 70
+reasoning_effort = "high"
+enabled = "auto"
+relative_cost_weight = 50
+est_task_usd = 0.60
+max_concurrent = 4
+may_spawn = true
+task_classes = []
+
+[tiers.pricing]
+input_usd_per_mtok = 0.0
+cache_read_usd_per_mtok = 0.0
+cache_write_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+
+[[tiers]]
 name = "mini"
-model = "gpt-5.4-mini"
+model = "gpt-5.6-luna"
+generation_rank = 56
+capability_rank = 50
 reasoning_effort = "medium"
 enabled = "auto"
-relative_cost_weight = 6
+relative_cost_weight = 20
 est_task_usd = 0.15
 max_concurrent = 6
 may_spawn = true
@@ -64,8 +108,29 @@ cache_write_usd_per_mtok = 0.0
 output_usd_per_mtok = 0.0
 
 [[tiers]]
+name = "legacy_mini"
+model = "gpt-5.4-mini"
+generation_rank = 54
+capability_rank = 40
+reasoning_effort = "medium"
+enabled = "auto"
+relative_cost_weight = 15
+est_task_usd = 0.15
+max_concurrent = 6
+may_spawn = true
+task_classes = []
+
+[tiers.pricing]
+input_usd_per_mtok = 0.0
+cache_read_usd_per_mtok = 0.0
+cache_write_usd_per_mtok = 0.0
+output_usd_per_mtok = 0.0
+
+[[tiers]]
 name = "spark"
 model = "gpt-5.3-codex-spark"
+generation_rank = 53
+capability_rank = 20
 reasoning_effort = "low"
 enabled = "auto"
 relative_cost_weight = 2

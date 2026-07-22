@@ -92,6 +92,26 @@ def test_resolves_root_run_id_depth_and_tier_from_payload_and_rollouts(
     assert caller.tier_index == 1
 
 
+def test_codex_caller_reads_active_reasoning_effort(tmp_path: Path) -> None:
+    from conductor.config import load_ladder
+    from conductor.identity import resolve_caller
+
+    ladder = load_ladder(write_config(tmp_path / "conductor.toml", DEFAULT_CONFIG))
+
+    caller = resolve_caller(
+        {
+            "run_id": "root-run",
+            "thread_id": "root-run",
+            "model": "gpt-5.5",
+            "model_reasoning_effort": "high",
+        },
+        ladder,
+        tmp_path / "sessions",
+    )
+
+    assert caller.effort == "high"
+
+
 def test_unknown_identity_and_model_use_explicit_posture_without_tier_fabrication(
     tmp_path: Path,
 ) -> None:

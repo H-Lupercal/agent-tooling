@@ -5,6 +5,22 @@ Keep a Changelog, and the project uses Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add GPT-5.6 Sol, Terra, and Luna to the Codex ladder with explicit model
+  generation, capability, and six-level reasoning-effort ceilings.
+- Persist accepted worker effort through an additive SQLite migration and
+  reject Codex descendants that exceed any caller authority dimension.
+
+### Changed
+
+- Let the Codex orchestrator choose worker model and effort; Conductor now
+  validates that exact choice instead of selecting a task-class target.
+- Recognize GPT-5.5 and older models without allowing them to upgrade into the
+  GPT-5.6 generation. Equal-cost cross-model work is not counted as savings.
+- Leave Claude production behavior unchanged pending verification of a live
+  per-invocation effort selector.
+
 ### Fixed
 
 - Generate Codex hook configuration with supported top-level metadata and

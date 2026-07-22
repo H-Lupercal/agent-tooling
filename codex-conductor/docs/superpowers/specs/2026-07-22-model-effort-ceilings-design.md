@@ -119,9 +119,9 @@ and reservations remain readable, but new enforced spawns require exact effort
 authority. Status and reports display effort where known and label historical
 unknowns honestly.
 
-Installed version-2 TOML remains loadable. New model-authority fields receive
-safe compatibility defaults only when they preserve the old ordering; ambiguous
-or duplicate authority fails configuration validation. The installer updates
+Installed version-2 TOML remains loadable. Missing generation authority is
+treated as unknown and cross-model Codex routing fails closed until it is made
+explicit; it is never guessed from a model slug. The installer updates
 managed assets transactionally and never edits unrelated user configuration.
 
 ## Testing

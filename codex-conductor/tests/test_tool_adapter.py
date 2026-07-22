@@ -17,9 +17,27 @@ class ToolAdapterTests(unittest.TestCase):
 
         self.assertEqual(request.kind, "spawn")
         self.assertEqual(request.requested_model, "gpt-5.4")
+        self.assertEqual(request.requested_effort, "medium")
         self.assertEqual(request.task_name, "tests_ledger")
         self.assertEqual(request.envelope.task_class, "tests")
         self.assertEqual(request.envelope.owned_paths, ("tests/test_ledger.py",))
+
+    def test_spawn_payload_extracts_reasoning_effort(self):
+        from conductor.tool_adapter import normalize_tool_request
+
+        request = normalize_tool_request(
+            {
+                "tool_name": "spawn_agent",
+                "tool_input": {
+                    "task_name": "tests_ledger",
+                    "model": "gpt-5.6-terra",
+                    "reasoning_effort": "medium",
+                },
+            }
+        )
+
+        self.assertEqual(request.requested_model, "gpt-5.6-terra")
+        self.assertEqual(request.requested_effort, "medium")
 
     def test_other_tool_is_ignored(self):
         from conductor.tool_adapter import normalize_tool_request

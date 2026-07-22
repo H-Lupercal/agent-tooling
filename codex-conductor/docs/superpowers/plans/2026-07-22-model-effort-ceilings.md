@@ -68,8 +68,8 @@ ReasoningEffort = Literal["low", "medium", "high", "xhigh", "max", "ultra"]
 class TierConfig(StrictModel):
     name: Identifier
     model: BoundedString
-    generation_rank: PositiveInt
-    capability_rank: PositiveInt
+    generation_rank: PositiveInt | None = None
+    capability_rank: PositiveInt | None = None
     reasoning_effort: ReasoningEffort
     enabled: Literal["always", "auto", "never"]
     pricing: Pricing
@@ -87,7 +87,9 @@ class TierConfig(StrictModel):
 ```
 
 Change the cost-order validator from strictly decreasing to non-increasing and
-keep exact task-class partition validation over non-empty owners.
+keep exact task-class partition validation over non-empty owners. A missing
+generation remains unknown for compatibility and fails closed for cross-model
+Codex routing.
 
 - [ ] **Step 4: Run focused tests and verify GREEN**
 
@@ -159,7 +161,7 @@ normalization.
 Codex spawn properties must include:
 
 ```json
-"model": {"type":"string","enum":["gpt-5.6-sol","gpt-5.6-terra","gpt-5.6-luna","gpt-5.5","gpt-5.4","gpt-5.4-mini","gpt-5.3-codex-spark"]},
+"model": {"type":"string","enum":["gpt-5.6-sol","gpt-5.6-terra"]},
 "reasoning_effort": {"type":"string","enum":["low","medium","high","xhigh","max","ultra"]}
 ```
 

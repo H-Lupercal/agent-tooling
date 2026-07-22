@@ -5,9 +5,11 @@ from dataclasses import dataclass
 
 from conductor.config import ConductorConfig, TierConfig
 from conductor.schemas import (
+    REASONING_EFFORTS,
     NormalizedOperation,
     OperatingMode,
     OperationName,
+    Provider,
     RunContext,
 )
 from conductor.store import DecisionSpec, ReservationSnapshot
@@ -32,6 +34,7 @@ class PolicyEvaluation:
     spec: DecisionSpec
     tier: TierConfig | None
     selected_model: str | None
+    reasoning_effort: str | None
     estimate_usd: float
     reserve: bool
 
@@ -45,6 +48,7 @@ def evaluate_policy(
     snapshot: ReservationSnapshot,
     caller_model: str,
     caller_depth: int,
+    caller_effort: str = "",
 ) -> PolicyEvaluation:
     """Evaluate one normalized operation without I/O or mutation.
 
@@ -112,76 +116,248 @@ def evaluate_policy(
             f"tier {caller_tier.name} may not delegate work",
         )
 
-    target_index = _target_tier_index(config, enabled_tiers, envelope.task_class)
     forced_frontier = envelope.task_class == "high_risk" or bool(envelope.risk_triggers)
-    if forced_frontier:
-        target_index = _frontier_index(config, enabled_tiers)
+    codex_routing = run.provider is Provider.CODEX and run.mode is OperatingMode.ROUTING
+    requested_effort: str | None = None
+
+    if codex_routing:
+        requested_model = _requested_model(operation)
+        requested_effort = _requested_effort(operation)
+        inherits_authority = (
+            operation.payload.get("fork_turns") == "all"
+            and requested_model is None
+            and requested_effort is None
+        )
+        if inherits_authority:
+            requested_model = caller_model
+            requested_effort = caller_effort
+        if requested_model is None:
+            return _result(
+                False,
+                "MISSING_MODEL_SELECTION",
+                "Codex routing requires the orchestrator to choose a worker model",
+            )
+        if requested_effort is None:
+            return _result(
+                False,
+                "MISSING_EFFORT_SELECTION",
+                "Codex routing requires the orchestrator to choose worker reasoning effort",
+            )
+        target_index = config.tier_index_for_model(requested_model)
         if target_index is None:
             return _result(
                 False,
-                "FRONTIER_UNAVAILABLE",
-                "high-risk work requires an enabled frontier tier",
+                "UNKNOWN_TARGET_MODEL",
+                f"requested model {requested_model} is outside the configured ladder",
             )
-    elif target_index is None:
-        return _result(
-            False,
-            "NO_ENABLED_TIER",
-            f"no enabled tier can own task class {envelope.task_class}",
-        )
-
-    target = config.tiers[target_index]
-    selected_model = target.model if run.mode is OperatingMode.ROUTING else None
-    estimate = float(target.est_task_usd)
-
-    if target_index < caller_index:
-        return _result(
-            False,
-            "STRONGER_CHILD_FORBIDDEN",
-            "delegated work may not use a stronger tier than its caller",
-            tier=target,
-            selected_model=selected_model,
-            estimate=estimate,
-        )
-
-    same_tier = target_index == caller_index
-    if config.policy.require_strictly_cheaper and same_tier:
-        exception_allowed = (
-            caller_depth == 0
-            and snapshot.active_by_tier.get(target.name, 0)
-            < config.policy.same_tier_spawns_from_root_max
-        )
-        if not exception_allowed:
-            rule = (
-                "SAME_TIER_LIMIT" if caller_depth == 0 else "STRICTLY_CHEAPER_REQUIRED"
-            )
+        if target_index not in enabled_tiers:
             return _result(
                 False,
-                rule,
-                "child must be strictly cheaper; the bounded root exception is unavailable",
+                "TARGET_MODEL_DISABLED",
+                f"requested model {requested_model} is not enabled",
+            )
+        if forced_frontier:
+            frontier_index = _frontier_index(config, enabled_tiers)
+            if frontier_index is None:
+                return _result(
+                    False,
+                    "FRONTIER_UNAVAILABLE",
+                    "high-risk work requires an enabled frontier tier",
+                )
+            if caller_index != frontier_index:
+                return _result(
+                    False,
+                    "HIGH_RISK_CALLER_NOT_FRONTIER",
+                    "the current caller cannot delegate high-risk work to a stronger frontier model; keep it local",
+                )
+            if target_index != frontier_index:
+                frontier = config.tiers[frontier_index]
+                return _result(
+                    False,
+                    "HIGH_RISK_REQUIRES_FRONTIER",
+                    f"high-risk work must remain on frontier model {frontier.model}",
+                )
+        target = config.tiers[target_index]
+        selected_model = target.model
+        estimate = float(target.est_task_usd)
+
+        if target.model != caller_tier.model and (
+            target.generation_rank is None or caller_tier.generation_rank is None
+        ):
+            return _result(
+                False,
+                "UNKNOWN_MODEL_AUTHORITY",
+                "cross-model Codex routing requires explicit generation ranks for both caller and worker",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
+            )
+        if (
+            target.generation_rank is not None
+            and caller_tier.generation_rank is not None
+            and target.generation_rank > caller_tier.generation_rank
+        ):
+            return _result(
+                False,
+                "MODEL_GENERATION_CEILING",
+                f"requested model {target.model} is newer than caller ceiling {caller_model}",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
+            )
+        if target.effective_capability_rank > caller_tier.effective_capability_rank:
+            return _result(
+                False,
+                "MODEL_CAPABILITY_CEILING",
+                f"requested model {target.model} exceeds caller capability ceiling {caller_model}",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
+            )
+        if caller_effort not in REASONING_EFFORTS:
+            return _result(
+                False,
+                "UNKNOWN_CALLER_EFFORT",
+                "caller reasoning effort is unavailable; Codex routing fails closed",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
+            )
+        if requested_effort not in REASONING_EFFORTS:
+            return _result(
+                False,
+                "UNKNOWN_TARGET_EFFORT",
+                f"requested effort {requested_effort!r} is not canonical",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
+            )
+        if REASONING_EFFORTS.index(requested_effort) > REASONING_EFFORTS.index(
+            caller_effort
+        ):
+            return _result(
+                False,
+                "EFFORT_CEILING",
+                f"requested effort {requested_effort} exceeds caller ceiling {caller_effort}; choose an effort at or below {caller_effort}",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
+            )
+        if not target.supports_effort(requested_effort):
+            return _result(
+                False,
+                "UNSUPPORTED_MODEL_EFFORT",
+                f"model {target.model} supports effort only through {target.reasoning_effort}",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
+            )
+
+        strictly_cheaper = (
+            target.relative_cost_weight < caller_tier.relative_cost_weight
+        )
+        exact_same_model = target.model == caller_tier.model
+        if config.policy.require_strictly_cheaper and not strictly_cheaper:
+            exception_allowed = (
+                exact_same_model
+                and caller_depth == 0
+                and snapshot.active_by_tier.get(target.name, 0)
+                < config.policy.same_tier_spawns_from_root_max
+            )
+            if not exception_allowed:
+                rule = (
+                    "SAME_TIER_LIMIT"
+                    if exact_same_model and caller_depth == 0
+                    else "STRICTLY_CHEAPER_REQUIRED"
+                )
+                return _result(
+                    False,
+                    rule,
+                    "child must be strictly cheaper; the bounded root same-model exception is unavailable",
+                    tier=target,
+                    selected_model=selected_model,
+                    effort=requested_effort,
+                    estimate=estimate,
+                )
+    else:
+        target_index = _target_tier_index(config, enabled_tiers, envelope.task_class)
+        if forced_frontier:
+            target_index = _frontier_index(config, enabled_tiers)
+            if target_index is None:
+                return _result(
+                    False,
+                    "FRONTIER_UNAVAILABLE",
+                    "high-risk work requires an enabled frontier tier",
+                )
+        elif target_index is None:
+            return _result(
+                False,
+                "NO_ENABLED_TIER",
+                f"no enabled tier can own task class {envelope.task_class}",
+            )
+
+        target = config.tiers[target_index]
+        selected_model = target.model if run.mode is OperatingMode.ROUTING else None
+        estimate = float(target.est_task_usd)
+
+        if target_index < caller_index:
+            return _result(
+                False,
+                "STRONGER_CHILD_FORBIDDEN",
+                "delegated work may not use a stronger tier than its caller",
                 tier=target,
                 selected_model=selected_model,
                 estimate=estimate,
             )
 
-    if run.mode is OperatingMode.ADMISSION and target_index != caller_index:
-        return _result(
-            False,
-            "ROUTING_REQUIRED",
-            "provider can admit work but cannot enforce the configured child model",
-            tier=target,
-            estimate=estimate,
-        )
+        same_tier = target_index == caller_index
+        if config.policy.require_strictly_cheaper and same_tier:
+            exception_allowed = (
+                caller_depth == 0
+                and snapshot.active_by_tier.get(target.name, 0)
+                < config.policy.same_tier_spawns_from_root_max
+            )
+            if not exception_allowed:
+                rule = (
+                    "SAME_TIER_LIMIT"
+                    if caller_depth == 0
+                    else "STRICTLY_CHEAPER_REQUIRED"
+                )
+                return _result(
+                    False,
+                    rule,
+                    "child must be strictly cheaper; the bounded root exception is unavailable",
+                    tier=target,
+                    selected_model=selected_model,
+                    estimate=estimate,
+                )
 
-    requested_model = _requested_model(operation)
-    if run.mode is OperatingMode.ROUTING and requested_model != target.model:
-        return _result(
-            False,
-            "MODEL_MISMATCH",
-            f"task class {envelope.task_class} requires model {target.model}",
-            tier=target,
-            selected_model=target.model,
-            estimate=estimate,
-        )
+        if run.mode is OperatingMode.ADMISSION and target_index != caller_index:
+            return _result(
+                False,
+                "ROUTING_REQUIRED",
+                "provider can admit work but cannot enforce the configured child model",
+                tier=target,
+                estimate=estimate,
+            )
+
+        requested_model = _requested_model(operation)
+        if run.mode is OperatingMode.ROUTING and requested_model != target.model:
+            return _result(
+                False,
+                "MODEL_MISMATCH",
+                f"task class {envelope.task_class} requires model {target.model}",
+                tier=target,
+                selected_model=target.model,
+                estimate=estimate,
+            )
 
     active = snapshot.active_by_tier.get(target.name, 0)
     if active >= target.max_concurrent:
@@ -217,7 +393,8 @@ def evaluate_policy(
             selected_model=selected_model,
             estimate=estimate,
             reserve=True,
-            savings=_savings_eligible(run.mode, caller_index, target_index),
+            effort=requested_effort,
+            savings=_savings_eligible(run.mode, caller_tier, target),
         )
 
     warning_threshold = config.budget.run_usd_cap * config.budget.warn_at_fraction
@@ -233,9 +410,10 @@ def evaluate_policy(
         message,
         tier=target,
         selected_model=selected_model,
+        effort=requested_effort,
         estimate=estimate,
         reserve=True,
-        savings=_savings_eligible(run.mode, caller_index, target_index),
+        savings=_savings_eligible(run.mode, caller_tier, target),
     )
 
 
@@ -276,10 +454,21 @@ def _requested_model(operation: NormalizedOperation) -> str | None:
     return None
 
 
+def _requested_effort(operation: NormalizedOperation) -> str | None:
+    for name in ("reasoning_effort", "model_reasoning_effort"):
+        value = operation.payload.get(name)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def _savings_eligible(
-    mode: OperatingMode, caller_index: int, target_index: int
+    mode: OperatingMode, caller: TierConfig, target: TierConfig
 ) -> bool:
-    return mode is OperatingMode.ROUTING and target_index > caller_index
+    return (
+        mode is OperatingMode.ROUTING
+        and target.relative_cost_weight < caller.relative_cost_weight
+    )
 
 
 def _result(
@@ -289,6 +478,7 @@ def _result(
     *,
     tier: TierConfig | None = None,
     selected_model: str | None = None,
+    effort: str | None = None,
     estimate: float = 0.0,
     reserve: bool = False,
     savings: bool = False,
@@ -304,6 +494,7 @@ def _result(
         ),
         tier=tier,
         selected_model=selected_model,
+        reasoning_effort=effort,
         estimate_usd=estimate,
         reserve=reserve and allowed,
     )

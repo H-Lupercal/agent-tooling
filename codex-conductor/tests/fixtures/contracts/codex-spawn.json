@@ -1,5 +1,7 @@
 {
   "task_name": "tests_ledger",
   "message": "Run the ledger tests",
-  "fork_turns": "all"
+  "fork_turns": "none",
+  "model": "gpt-5.6-terra",
+  "reasoning_effort": "medium"
 }

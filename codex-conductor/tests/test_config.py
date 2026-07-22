@@ -93,7 +93,7 @@ def test_task_classes_form_exact_partition() -> None:
         (lambda config: config["tiers"][1].update(model="gpt-5.5"), "unique models"),
         (
             lambda config: config["tiers"][1].update(relative_cost_weight=101),
-            "strictly decreasing",
+            "non-increasing",
         ),
     ],
 )
@@ -104,6 +104,21 @@ def test_tier_integrity_constraints(mutate, message: str) -> None:
     mutate(payload)
     with pytest.raises(ValidationError, match=message):
         ConductorConfig.model_validate(payload)
+
+
+def test_equal_cost_models_are_valid_but_cost_may_not_increase() -> None:
+    from conductor.schemas import ConductorConfig
+
+    tied = valid_config()
+    tied["tiers"][1]["relative_cost_weight"] = tied["tiers"][0]["relative_cost_weight"]
+    assert ConductorConfig.model_validate(tied)
+
+    increasing = valid_config()
+    increasing["tiers"][1]["relative_cost_weight"] = (
+        increasing["tiers"][0]["relative_cost_weight"] + 1
+    )
+    with pytest.raises(ValidationError, match="non-increasing"):
+        ConductorConfig.model_validate(increasing)
 
 
 def test_config_paths_honor_environment_install_and_package_fallback(

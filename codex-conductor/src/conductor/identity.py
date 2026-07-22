@@ -27,6 +27,7 @@ class Caller:
     depth: int
     tier_index: int | None
     model: str
+    effort: str = ""
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,9 @@ class IdentityResolution:
 
 def resolve_caller(payload: dict, ladder: Ladder, sessions_root: Path) -> Caller:
     model = str(payload.get("model") or "")
+    effort = str(
+        payload.get("reasoning_effort") or payload.get("model_reasoning_effort") or ""
+    )
     tier = ladder.tier_index_for_model(model)
     thread_id = _identifier_or_none(
         payload.get("thread_id") or payload.get("agent_thread_id")
@@ -79,6 +83,7 @@ def resolve_caller(payload: dict, ladder: Ladder, sessions_root: Path) -> Caller
         depth=depth,
         tier_index=tier,
         model=model,
+        effort=effort,
     )
 
 

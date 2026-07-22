@@ -39,6 +39,7 @@ class ToolRequest:
     requested_model: str | None
     task_name: str | None
     envelope: TaskEnvelopeV2 | None
+    requested_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,9 @@ def normalize_tool_request(payload: dict, schema: dict | None = None) -> ToolReq
     requested_model = _first_string(
         tool_input, ("model", "model_slug", "requested_model")
     )
+    requested_effort = _first_string(
+        tool_input, ("reasoning_effort", "model_reasoning_effort")
+    )
     task_name = _first_string(tool_input, ("task_name", "name"))
     if envelope is not None:
         task_name = task_name or envelope.task_name
@@ -154,6 +158,7 @@ def normalize_tool_request(payload: dict, schema: dict | None = None) -> ToolReq
         requested_model=requested_model,
         task_name=task_name,
         envelope=envelope,
+        requested_effort=requested_effort,
     )
 
 
