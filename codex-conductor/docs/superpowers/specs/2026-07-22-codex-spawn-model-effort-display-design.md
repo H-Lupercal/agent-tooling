@@ -58,11 +58,12 @@ The existing policy and atomic reservation transaction remain authoritative.
 After `decide()` returns an approved, savings-eligible spawn decision, the hook
 uses the decision's reservation identifier to read the committed reservation.
 
-The display fields come from existing authoritative state:
+The display fields come from existing authoritative state and normalized input:
 
 - model: committed reservation model;
 - reasoning effort: committed reservation reasoning effort; and
-- task: committed reservation task identifier.
+- task: the validated Conductor task envelope, which is the same task name used
+  to create the reservation.
 
 The hook formats those values and asks the Codex provider to add the notice to
 the already-generated allow response. The provider emits the notice as the
