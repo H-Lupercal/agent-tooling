@@ -114,7 +114,14 @@ selectors and can operate in routing mode when its exact lifecycle link is
 present. The orchestrator chooses both values from task context; Conductor
 validates that request unchanged and never picks or rewrites a worker. A
 `fork_turns="all"` spawn with neither override safely inherits both values.
-Claude's existing `Task` model-routing behavior is unchanged in this release.
+
+Claude's `Task` tool exposes a per-call `model` selector but no per-call
+reasoning-effort field, so Claude routing is model-led: the orchestrator chooses
+the worker model and Conductor validates only that it stays within the caller's
+model generation and capability ceiling (an omitted `model` inherits the
+caller's model). Reasoning effort is fixed by the chosen subagent definition,
+not the `Task` call, so it is left unenforced and every Claude reservation
+records a null effort rather than a fabricated one.
 
 Non-governed tools and ordinary feedback messages bypass policy and state.
 Unexpected failures deny new governed work safely; they do not block unrelated

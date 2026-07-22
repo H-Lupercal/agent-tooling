@@ -19,8 +19,11 @@ The Codex spawn schema exposes `model` and `reasoning_effort` overrides, so its
 strongest honest mode is `routing` when all correlation fields match. The
 verified model override choices are GPT-5.6 Sol and Terra, and the effort range
 is low through ultra. Full-history spawns omit both overrides and inherit them.
-The Claude `Task` schema still exposes a model selector and retains its current
-routing behavior; no per-invocation Claude effort selector is asserted here.
+The Claude `Task` schema exposes a model selector but no per-invocation effort
+selector, so Claude runs in model-led routing: the orchestrator's chosen worker
+model is validated against the caller's generation and capability ceiling, while
+reasoning effort is left unenforced and recorded as null. No per-invocation
+Claude effort selector is asserted here.
 
 Golden payload/schema fixtures and `conductor doctor --strict` detect drift.
 The packaged probe checks local installation and contract state without

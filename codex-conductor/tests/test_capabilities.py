@@ -15,6 +15,20 @@ def fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
 
+def test_effort_authority_matches_verified_contract_selectors() -> None:
+    # policy.py enforces reasoning effort only for a provider whose contract
+    # exposes a verified per-call effort selector, using `run.provider is
+    # Provider.CODEX` as the proxy. Guard that proxy: Codex declares the
+    # selector, Claude does not. If this ever changes, the policy proxy must be
+    # revisited in the same change.
+    from conductor.capabilities import load_contract
+
+    assert load_contract("codex-current").reasoning_effort_selector_path == (
+        "reasoning_effort"
+    )
+    assert load_contract("claude-current").reasoning_effort_selector_path is None
+
+
 def test_current_codex_contract_routes_verified_model_and_effort_fields() -> None:
     from conductor.capabilities import load_contract, negotiate
 

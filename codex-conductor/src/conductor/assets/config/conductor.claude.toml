@@ -15,6 +15,8 @@ minimum_mode = "admission"
 [[tiers]]
 name = "frontier"
 model = "claude-opus-4-8"
+generation_rank = 48
+capability_rank = 100
 reasoning_effort = "high"
 enabled = "always"
 relative_cost_weight = 100
@@ -32,6 +34,8 @@ output_usd_per_mtok = 0.0
 [[tiers]]
 name = "standard"
 model = "claude-sonnet-5"
+generation_rank = 48
+capability_rank = 25
 reasoning_effort = "medium"
 enabled = "always"
 relative_cost_weight = 25
@@ -49,6 +53,8 @@ output_usd_per_mtok = 0.0
 [[tiers]]
 name = "mini"
 model = "claude-haiku-4-5"
+generation_rank = 48
+capability_rank = 6
 reasoning_effort = "medium"
 enabled = "always"
 relative_cost_weight = 6

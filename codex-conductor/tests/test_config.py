@@ -197,3 +197,28 @@ def test_models_cache_filtering_and_budget_copy_are_deterministic(
     changed = config_module.with_budget(config, 3.5)
     assert changed.budget.run_usd_cap == 3.5
     assert config.budget.run_usd_cap != changed.budget.run_usd_cap
+
+
+def test_packaged_claude_ladder_declares_model_authority_ranks() -> None:
+    # Model-led Claude routing requires explicit generation/capability ranks so
+    # cross-model spawns are evaluated instead of failing UNKNOWN_MODEL_AUTHORITY.
+    from tests.helpers import PROJECT_ROOT
+
+    claude_config = (
+        PROJECT_ROOT
+        / "src"
+        / "conductor"
+        / "assets"
+        / "config"
+        / "conductor.claude.toml"
+    )
+    config = config_module.load_config(claude_config)
+    ranks = {
+        tier.model: (tier.generation_rank, tier.capability_rank)
+        for tier in config.tiers
+    }
+    assert ranks == {
+        "claude-opus-4-8": (48, 100),
+        "claude-sonnet-5": (48, 25),
+        "claude-haiku-4-5": (48, 6),
+    }

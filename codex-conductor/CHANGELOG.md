@@ -18,8 +18,12 @@ Keep a Changelog, and the project uses Semantic Versioning.
   validates that exact choice instead of selecting a task-class target.
 - Recognize GPT-5.5 and older models without allowing them to upgrade into the
   GPT-5.6 generation. Equal-cost cross-model work is not counted as savings.
-- Leave Claude production behavior unchanged pending verification of a live
-  per-invocation effort selector.
+- Give the Claude orchestrator model-led routing: it chooses the worker model
+  and Conductor validates only the model generation and capability ceiling,
+  replacing the prior rule that the task class dictates the model. An omitted
+  `model` inherits the caller's model. Reasoning effort is not observable per
+  Claude `Task` call, so it is left unenforced and every Claude reservation
+  records a null effort.
 
 ### Fixed
 

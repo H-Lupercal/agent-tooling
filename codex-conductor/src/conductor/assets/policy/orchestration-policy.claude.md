@@ -17,16 +17,20 @@ migration, deleting or rewriting more than 200 lines, public API contract
 change, concurrency/locking, build or release pipeline change,
 security-sensitive input parsing, secrets handling, production configuration.
 
-Every governed `Task` call must set the `model` field to the chosen tier's
-model and include this envelope in the `prompt`:
+Every governed `Task` call sets the `model` field to the worker model you
+choose (or omits it to run the worker on your own model) and includes this
+envelope in the `prompt`:
 `<CONDUCTOR_TASK>{"schema_version":1,"task_name":"tests_ledger","task_class":"tests","risk_triggers":[],"owned_paths":["tests/test_ledger.py"],"acceptance_checks":["python -m pytest tests/test_ledger.py -q"],"new_task":true}</CONDUCTOR_TASK>`
 
 Model field accepts the aliases `opus`, `sonnet`, `haiku` or full model ids.
-The task class determines the required tier: if the `model` you pass does not
-match the tier that owns the task class, the spawn is blocked with the correct
-target. Children must be strictly cheaper than you (the frontier primary),
-except that you may run up to two same-tier frontier subagents for high-risk
-work. Subagents should not spawn further `Task` calls; if conductor blocks a
+You choose the worker model; Conductor validates only that your choice does not
+exceed your own model generation or capability ceiling, and never rewrites the
+request or picks a replacement. Reasoning effort is fixed by the chosen subagent
+definition rather than the `Task` call, so Conductor does not enforce an effort
+ceiling for Claude. Children must be strictly cheaper than you (the frontier
+primary), except that you may run up to two same-tier frontier subagents for
+high-risk work, and high-risk work stays on the frontier tier. Subagents should
+not spawn further `Task` calls; if conductor blocks a
 nested spawn, finish that work in the current agent and summarize what was not
 delegated. If the budget hook blocks a spawn, finish the remaining work
 yourself and summarize what was not delegated.

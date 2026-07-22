@@ -106,11 +106,16 @@ selectors and correlated lifecycle hooks are present.
 
 ### Claude Code
 
-No Claude production code, golden contracts, fixtures, policy behavior, or
-installer assets change in this branch. A separate handoff records the
-unresolved mismatch: official configuration supports subagent effort, while a
-verified per-invocation Agent-tool effort selector was not found. Claude work
-must resolve that provider surface before adding enforceable effort routing.
+Model-led routing shipped for Claude in `specs/claude-model-led-routing.md`: the
+orchestrator chooses the worker model and Conductor validates the model
+generation and capability ceiling, replacing the prior task-class model rule.
+Effort remains deferred by design. The live Agent/Task tool was verified to
+expose a per-call model selector but no per-call effort selector — effort is
+fixed by the chosen subagent definition — so Claude effort is left unenforced and
+every Claude reservation records a null effort. No fabricated effort enforcement
+is added; the Claude contract deliberately declares no
+`reasoning_effort_selector_path`, and `policy.py` enforces effort only for
+providers that expose a verified selector (today Codex alone).
 
 ## Persistence and compatibility
 

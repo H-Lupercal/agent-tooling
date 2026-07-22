@@ -117,32 +117,51 @@ def evaluate_policy(
         )
 
     forced_frontier = envelope.task_class == "high_risk" or bool(envelope.risk_triggers)
-    codex_routing = run.provider is Provider.CODEX and run.mode is OperatingMode.ROUTING
+    model_led_routing = run.mode is OperatingMode.ROUTING
+    # Effort is enforced only for a provider whose contract exposes a VERIFIED
+    # per-call reasoning-effort selector. Today that is Codex alone: the Claude
+    # Task tool exposes a model selector but no per-call effort field, so Claude
+    # gets model-led routing with effort left unenforced (recorded as NULL).
+    # This proxy is guarded by capabilities.py and tests/test_capabilities.py
+    # (test_codex_contract_without_effort_control_cannot_claim_routing,
+    #  test_claude_keeps_existing_model_only_routing_contract) and by
+    # test_effort_authority_matches_verified_contract_selectors. If a future
+    # Claude contract adds a verified effort selector, update this line and that
+    # test together.
+    effort_enforced = run.provider is Provider.CODEX
     requested_effort: str | None = None
 
-    if codex_routing:
+    if model_led_routing:
         requested_model = _requested_model(operation)
-        requested_effort = _requested_effort(operation)
-        inherits_authority = (
-            operation.payload.get("fork_turns") == "all"
-            and requested_model is None
-            and requested_effort is None
-        )
-        if inherits_authority:
-            requested_model = caller_model
-            requested_effort = caller_effort
-        if requested_model is None:
-            return _result(
-                False,
-                "MISSING_MODEL_SELECTION",
-                "Codex routing requires the orchestrator to choose a worker model",
+        if effort_enforced:
+            requested_effort = _requested_effort(operation)
+            inherits_authority = (
+                operation.payload.get("fork_turns") == "all"
+                and requested_model is None
+                and requested_effort is None
             )
-        if requested_effort is None:
-            return _result(
-                False,
-                "MISSING_EFFORT_SELECTION",
-                "Codex routing requires the orchestrator to choose worker reasoning effort",
-            )
+            if inherits_authority:
+                requested_model = caller_model
+                requested_effort = caller_effort
+            if requested_model is None:
+                return _result(
+                    False,
+                    "MISSING_MODEL_SELECTION",
+                    "Codex routing requires the orchestrator to choose a worker model",
+                )
+            if requested_effort is None:
+                return _result(
+                    False,
+                    "MISSING_EFFORT_SELECTION",
+                    "Codex routing requires the orchestrator to choose worker reasoning effort",
+                )
+        else:
+            # Claude: an omitted model inherits the caller's model (the
+            # documented Agent-tool default). Per-call effort is unobservable,
+            # so it is left unenforced and recorded as NULL.
+            if requested_model is None:
+                requested_model = caller_model
+            requested_effort = None
         target_index = config.tier_index_for_model(requested_model)
         if target_index is None:
             return _result(
@@ -217,48 +236,49 @@ def evaluate_policy(
                 effort=requested_effort,
                 estimate=estimate,
             )
-        if caller_effort not in REASONING_EFFORTS:
-            return _result(
-                False,
-                "UNKNOWN_CALLER_EFFORT",
-                "caller reasoning effort is unavailable; Codex routing fails closed",
-                tier=target,
-                selected_model=selected_model,
-                effort=requested_effort,
-                estimate=estimate,
-            )
-        if requested_effort not in REASONING_EFFORTS:
-            return _result(
-                False,
-                "UNKNOWN_TARGET_EFFORT",
-                f"requested effort {requested_effort!r} is not canonical",
-                tier=target,
-                selected_model=selected_model,
-                effort=requested_effort,
-                estimate=estimate,
-            )
-        if REASONING_EFFORTS.index(requested_effort) > REASONING_EFFORTS.index(
-            caller_effort
-        ):
-            return _result(
-                False,
-                "EFFORT_CEILING",
-                f"requested effort {requested_effort} exceeds caller ceiling {caller_effort}; choose an effort at or below {caller_effort}",
-                tier=target,
-                selected_model=selected_model,
-                effort=requested_effort,
-                estimate=estimate,
-            )
-        if not target.supports_effort(requested_effort):
-            return _result(
-                False,
-                "UNSUPPORTED_MODEL_EFFORT",
-                f"model {target.model} supports effort only through {target.reasoning_effort}",
-                tier=target,
-                selected_model=selected_model,
-                effort=requested_effort,
-                estimate=estimate,
-            )
+        if effort_enforced:
+            if caller_effort not in REASONING_EFFORTS:
+                return _result(
+                    False,
+                    "UNKNOWN_CALLER_EFFORT",
+                    "caller reasoning effort is unavailable; Codex routing fails closed",
+                    tier=target,
+                    selected_model=selected_model,
+                    effort=requested_effort,
+                    estimate=estimate,
+                )
+            if requested_effort not in REASONING_EFFORTS:
+                return _result(
+                    False,
+                    "UNKNOWN_TARGET_EFFORT",
+                    f"requested effort {requested_effort!r} is not canonical",
+                    tier=target,
+                    selected_model=selected_model,
+                    effort=requested_effort,
+                    estimate=estimate,
+                )
+            if REASONING_EFFORTS.index(requested_effort) > REASONING_EFFORTS.index(
+                caller_effort
+            ):
+                return _result(
+                    False,
+                    "EFFORT_CEILING",
+                    f"requested effort {requested_effort} exceeds caller ceiling {caller_effort}; choose an effort at or below {caller_effort}",
+                    tier=target,
+                    selected_model=selected_model,
+                    effort=requested_effort,
+                    estimate=estimate,
+                )
+            if not target.supports_effort(requested_effort):
+                return _result(
+                    False,
+                    "UNSUPPORTED_MODEL_EFFORT",
+                    f"model {target.model} supports effort only through {target.reasoning_effort}",
+                    tier=target,
+                    selected_model=selected_model,
+                    effort=requested_effort,
+                    estimate=estimate,
+                )
 
         strictly_cheaper = (
             target.relative_cost_weight < caller_tier.relative_cost_weight

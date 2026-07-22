@@ -33,6 +33,20 @@ could incorrectly claim routing savings.
 - Add transitive tests proving no descendant can recover a higher model
   generation, capability rank, or effort than its parent.
 
+## Resolved
+
+Resolved by `specs/claude-model-led-routing.md`. The live Claude `Agent`/`Task`
+tool was verified to expose a per-call `model` selector but no per-call effort
+selector (effort is fixed by the chosen subagent definition). Claude therefore
+now runs **model-led routing** — the orchestrator chooses the worker model and
+Conductor validates the model generation and capability ceiling — while effort
+enforcement remains deferred by design: it is not observable per call, so every
+Claude reservation records a null effort and no effort ceiling is claimed. If a
+future Claude release exposes a verified per-call effort selector, add
+`reasoning_effort_selector_path` to the Claude contract and flip
+`effort_enforced` in `policy.py` (guarded by
+`test_effort_authority_matches_verified_contract_selectors`).
+
 ## Files intentionally untouched by the Codex change
 
 - `src/conductor/providers/claude.py`
