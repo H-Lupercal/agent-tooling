@@ -36,6 +36,19 @@ make build PYTHON=.venv/bin/python
 For release work, also run locked builds, Twine, dependency audits, SBOM generation,
 and the root workflow validation. Preserve unrelated work and stage files explicitly.
 
+## Conductor state access
+
+Conductor's SQLite store uses WAL and needs write access to its provider state directory,
+including for `status`, `doctor`, and `report`. Use `--provider codex` or
+`--provider claude` explicitly when provider selection matters. In a Codex sandbox, first
+run the requested command normally. If it fails with
+`cannot initialize conductor store: unable to open database file` for a store below
+`~/.codex/conductor/state`, rerun only that same Conductor command with narrowly scoped
+sandbox escalation. Do not use SQLite immutable/no-lock modes, copy a live store, relocate
+provider state, or broaden access to the rest of `~/.codex` as a workaround. If escalation
+is denied, report the access denial and exact command rather than calling the database
+corrupt.
+
 At the end of a run, execute:
 
 ```sh

@@ -19,7 +19,10 @@
 
 - [ ] **Step 1: Add the Codex executor rule to both AGENTS contracts**
 
-Insert this text inside each `codex-conductor policy` managed section, immediately before the final-report requirement:
+Insert this text inside `/home/neil/AGENTS.md`'s `codex-conductor policy` managed
+section, immediately before the final-report requirement. In the repository-local
+`AGENTS.md`, add it under a `## Conductor state access` heading immediately before that
+file's final-report requirement:
 
 ```markdown
 Conductor's SQLite store uses WAL and needs write access to its provider state directory,
