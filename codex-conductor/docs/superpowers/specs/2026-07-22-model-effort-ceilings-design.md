@@ -2,9 +2,11 @@
 
 ## Goal
 
-Allow current Codex and Claude Code orchestrators to request a worker model and
-reasoning effort while guaranteeing that no descendant exceeds the initiating
-orchestrator's model generation, configured capability rank, or effort.
+Allow Codex orchestrators to request a worker model and reasoning effort while
+guaranteeing that no descendant exceeds the initiating orchestrator's model
+generation, configured capability rank, or effort. Claude Code implementation
+is intentionally deferred until its live per-invocation effort control can be
+verified.
 
 Conductor remains a guardrail. The orchestrator decides whether to delegate,
 how to divide work, and which permitted worker model and effort to request.
@@ -15,7 +17,9 @@ Conductor never rewrites a request or chooses a replacement worker.
 The implementation targets the provider surfaces verified on 2026-07-22:
 
 - Codex CLI 0.145.0 exposes `model` and `reasoning_effort` on spawned agents.
-- Claude Code 2.1.217 supports model and effort configuration for subagents.
+- Claude Code 2.1.217 documents model and effort configuration for subagent
+  definitions, but its live Agent tool did not expose a verified per-call
+  effort selector during this investigation.
 - Codex documents GPT-5.6 Sol, Terra, and Luna as its current family.
 - Codex prices GPT-5.6 Sol at the same credit rates as GPT-5.5: 125 input,
   12.5 cached-input, and 750 output credits per million tokens.
@@ -33,11 +37,10 @@ available. The documented ChatGPT credit rates are not mislabeled as dollars.
 
 ## Architecture
 
-Provider contracts declare model and effort selector paths independently.
-Routing mode is available only when the installed provider contract proves
-that Conductor can observe and block both requested dimensions. A contract
-that cannot prove effort control stays admission-only and cannot claim effort
-routing or savings.
+The Codex provider contract declares observable model and effort selectors.
+Codex routing is enabled only when the installed contract proves that
+Conductor can observe and block both requested dimensions. Claude's existing
+contract and routing behavior remain unchanged in this branch.
 
 The configuration defines explicit model authority rather than parsing model
 names. Each model has:
@@ -64,8 +67,8 @@ requested setting.
    capability, and effort are no greater than the caller's effective values.
 6. A valid request is reserved unchanged. The reservation records the exact
    requested model and effort.
-7. A nested caller resolves its authority from its correlated reservation and
-   provider lifecycle identity, so the ceiling propagates transitively.
+7. A nested Codex caller receives the accepted model and effort as its
+   effective authority, so the ceiling propagates transitively.
 
 The task-class ladder remains advisory policy about which models may own work,
 but it does not silently choose a model or effort. A request must name the
@@ -103,11 +106,11 @@ selectors and correlated lifecycle hooks are present.
 
 ### Claude Code
 
-Update the golden contract to the current `Agent`/compatible task input only
-for fields verified in the installed release and official documentation.
-Claude aliases are resolved before policy evaluation. If the live Agent hook
-does not expose a per-invocation effort field, Conductor must use a verified
-subagent definition or remain admission-only; it must not fabricate control.
+No Claude production code, golden contracts, fixtures, policy behavior, or
+installer assets change in this branch. A separate handoff records the
+unresolved mismatch: official configuration supports subagent effort, while a
+verified per-invocation Agent-tool effort selector was not found. Claude work
+must resolve that provider surface before adding enforceable effort routing.
 
 ## Persistence and compatibility
 
@@ -127,7 +130,7 @@ Use test-driven changes for each behavior:
 
 - schema validation for model authority and the full effort order;
 - capability negotiation requiring verified model and effort selectors;
-- Codex and Claude normalization of requested effort;
+- Codex normalization of requested effort;
 - policy tests for generation, capability, effort, supported-effort, missing
   selections, and unchanged valid requests;
 - nested-reservation tests proving a descendant cannot recover higher authority;
@@ -145,5 +148,6 @@ Use test-driven changes for each behavior:
 - No automatic request rewriting or fallback.
 - No model-quality inference from names or release dates.
 - No conversion of ChatGPT credits into dollar pricing.
+- No Claude runtime behavior changes.
 - No live provider installation, publication, deployment, or user-config
   mutation without separate authorization.
