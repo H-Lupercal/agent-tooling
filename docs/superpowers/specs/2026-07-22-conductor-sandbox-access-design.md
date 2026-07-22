@@ -26,6 +26,8 @@ providers independently.
 
 - `/home/neil/AGENTS.md`: add durable Codex executor guidance for provider-aware
   Conductor diagnostics and narrow escalation on the known SQLite access failure.
+- `/home/neil/VSproj/agent-tooling/AGENTS.md`: mirror the executor guidance because
+  this repository-local contract overrides the home contract.
 - `/home/neil/CLAUDE.md`: add planner-facing provider guidance without granting Claude
   implementation authority.
 - `/home/neil/.claude/settings.json`, `/home/neil/.claude/CLAUDE.md`, and
