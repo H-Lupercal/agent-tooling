@@ -105,7 +105,12 @@ def resolve_run_context(payload: dict) -> RunContext:
         raise StateError(f"invalid run context provider: {raw_provider!r}") from exc
     transcript = payload.get("transcript_path") or payload.get("agent_transcript_path")
     meta: SessionMeta | None = None
-    if transcript:
+    # Only the Codex provider ships rollout-format transcripts that
+    # read_session_meta() can parse. Claude Code transcripts use a different
+    # JSONL schema (no per-line `payload` object) and supply run/thread ids
+    # explicitly, so parsing their transcript here would wrongly abort
+    # SessionStart and prevent the store from ever being created.
+    if transcript and provider is Provider.CODEX:
         try:
             meta = read_session_meta(Path(transcript))
         except (OSError, ValueError, json.JSONDecodeError) as exc:
