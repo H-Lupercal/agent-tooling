@@ -149,12 +149,6 @@ def evaluate_policy(
                     "MISSING_MODEL_SELECTION",
                     "Codex routing requires the orchestrator to choose a worker model",
                 )
-            if requested_effort is None:
-                return _result(
-                    False,
-                    "MISSING_EFFORT_SELECTION",
-                    "Codex routing requires the orchestrator to choose worker reasoning effort",
-                )
         else:
             # Claude: an omitted model inherits the caller's model (the
             # documented Agent-tool default). Per-call effort is unobservable,
@@ -199,6 +193,22 @@ def evaluate_policy(
         target = config.tiers[target_index]
         selected_model = target.model
         estimate = float(target.est_task_usd)
+        if effort_enforced and requested_effort is None:
+            if caller_effort not in REASONING_EFFORTS:
+                return _result(
+                    False,
+                    "UNKNOWN_CALLER_EFFORT",
+                    "caller reasoning effort is unavailable; Codex routing fails closed",
+                    tier=target,
+                    selected_model=selected_model,
+                    estimate=estimate,
+                )
+            requested_effort = REASONING_EFFORTS[
+                min(
+                    REASONING_EFFORTS.index(caller_effort),
+                    REASONING_EFFORTS.index(target.reasoning_effort),
+                )
+            ]
 
         if target.model != caller_tier.model and (
             target.generation_rank is None or caller_tier.generation_rank is None
@@ -284,28 +294,20 @@ def evaluate_policy(
             target.relative_cost_weight < caller_tier.relative_cost_weight
         )
         exact_same_model = target.model == caller_tier.model
-        if config.policy.require_strictly_cheaper and not strictly_cheaper:
-            exception_allowed = (
-                exact_same_model
-                and caller_depth == 0
-                and snapshot.active_by_tier.get(target.name, 0)
-                < config.policy.same_tier_spawns_from_root_max
+        if (
+            config.policy.require_strictly_cheaper
+            and not strictly_cheaper
+            and not exact_same_model
+        ):
+            return _result(
+                False,
+                "STRICTLY_CHEAPER_REQUIRED",
+                "a different worker model must be strictly cheaper than its caller",
+                tier=target,
+                selected_model=selected_model,
+                effort=requested_effort,
+                estimate=estimate,
             )
-            if not exception_allowed:
-                rule = (
-                    "SAME_TIER_LIMIT"
-                    if exact_same_model and caller_depth == 0
-                    else "STRICTLY_CHEAPER_REQUIRED"
-                )
-                return _result(
-                    False,
-                    rule,
-                    "child must be strictly cheaper; the bounded root same-model exception is unavailable",
-                    tier=target,
-                    selected_model=selected_model,
-                    effort=requested_effort,
-                    estimate=estimate,
-                )
     else:
         target_index = _target_tier_index(config, enabled_tiers, envelope.task_class)
         if forced_frontier:
@@ -336,28 +338,6 @@ def evaluate_policy(
                 selected_model=selected_model,
                 estimate=estimate,
             )
-
-        same_tier = target_index == caller_index
-        if config.policy.require_strictly_cheaper and same_tier:
-            exception_allowed = (
-                caller_depth == 0
-                and snapshot.active_by_tier.get(target.name, 0)
-                < config.policy.same_tier_spawns_from_root_max
-            )
-            if not exception_allowed:
-                rule = (
-                    "SAME_TIER_LIMIT"
-                    if caller_depth == 0
-                    else "STRICTLY_CHEAPER_REQUIRED"
-                )
-                return _result(
-                    False,
-                    rule,
-                    "child must be strictly cheaper; the bounded root exception is unavailable",
-                    tier=target,
-                    selected_model=selected_model,
-                    estimate=estimate,
-                )
 
         if run.mode is OperatingMode.ADMISSION and target_index != caller_index:
             return _result(

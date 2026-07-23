@@ -39,7 +39,15 @@ def test_current_codex_contract_routes_verified_model_and_effort_fields() -> Non
     assert result.child_model_selectable is True
     spawn = next(tool for tool in contract.tools if tool.canonical_name == "spawn")
     properties = spawn.input_schema["properties"]
-    assert properties["model"]["enum"] == ["gpt-5.6-sol", "gpt-5.6-terra"]
+    assert properties["model"]["enum"] == [
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex-spark",
+    ]
     assert properties["reasoning_effort"]["enum"] == [
         "low",
         "medium",

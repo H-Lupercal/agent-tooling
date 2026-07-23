@@ -26,7 +26,15 @@
           "fork_turns": {"type": "string"},
           "model": {
             "type": "string",
-            "enum": ["gpt-5.6-sol", "gpt-5.6-terra"]
+            "enum": [
+              "gpt-5.6-sol",
+              "gpt-5.6-terra",
+              "gpt-5.6-luna",
+              "gpt-5.5",
+              "gpt-5.4",
+              "gpt-5.4-mini",
+              "gpt-5.3-codex-spark"
+            ]
           },
           "reasoning_effort": {
             "type": "string",

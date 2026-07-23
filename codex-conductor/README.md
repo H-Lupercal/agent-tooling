@@ -111,9 +111,11 @@ Every run records one provider mode:
 
 The packaged Codex contract exposes child `model` and `reasoning_effort`
 selectors and can operate in routing mode when its exact lifecycle link is
-present. The orchestrator chooses both values from task context; Conductor
-validates that request unchanged and never picks or rewrites a worker. A
-`fork_turns="all"` spawn with neither override safely inherits both values.
+present. The orchestrator chooses the worker model and may choose the effort.
+When effort is omitted, Conductor fills the highest worker-supported effort at
+or below the caller ceiling through the native hook's `updatedInput`. A
+`fork_turns="all"` spawn with neither override safely inherits both values
+exactly.
 
 Claude's `Task` tool exposes a per-call `model` selector but no per-call
 reasoning-effort field, so Claude routing is model-led: the orchestrator chooses

@@ -245,23 +245,24 @@ def test_target_model_effort_support_is_enforced(tmp_path: Path) -> None:
     assert result.spec.rule == "UNSUPPORTED_MODEL_EFFORT"
 
 
-@pytest.mark.parametrize(
-    ("model", "effort", "rule"),
-    [
-        (None, "medium", "MISSING_MODEL_SELECTION"),
-        ("gpt-5.4", None, "MISSING_EFFORT_SELECTION"),
-    ],
-)
-def test_codex_routing_requires_explicit_model_and_effort(
-    tmp_path: Path,
-    model: str | None,
-    effort: str | None,
-    rule: str,
-) -> None:
-    result = _evaluate(tmp_path, _operation(model=model, effort=effort))
+def test_codex_routing_requires_explicit_model(tmp_path: Path) -> None:
+    result = _evaluate(tmp_path, _operation(model=None, effort="medium"))
 
     assert result.spec.allowed is False
-    assert result.spec.rule == rule
+    assert result.spec.rule == "MISSING_MODEL_SELECTION"
+
+
+def test_codex_routing_resolves_omitted_effort_to_the_caller_target_minimum(
+    tmp_path: Path,
+) -> None:
+    result = _evaluate(
+        tmp_path,
+        _operation(model="gpt-5.4", effort=None),
+        caller_effort="high",
+    )
+
+    assert result.spec.allowed is True
+    assert result.reasoning_effort == "medium"
 
 
 def test_full_history_spawn_inherits_both_ceiling_dimensions(tmp_path: Path) -> None:
@@ -354,7 +355,7 @@ def test_non_frontier_root_keeps_high_risk_work_local(tmp_path: Path) -> None:
     assert "keep it local" in result.spec.message
 
 
-def test_same_tier_exception_is_root_only_and_bounded_in_enforced_modes(
+def test_same_model_workers_are_allowed_at_any_depth_until_normal_capacity(
     tmp_path: Path,
 ) -> None:
     operation = _operation("high_risk", model="gpt-5.5")
@@ -362,21 +363,21 @@ def test_same_tier_exception_is_root_only_and_bounded_in_enforced_modes(
     allowed = _evaluate(tmp_path, operation)
     nested = _evaluate(tmp_path, operation, caller_depth=1)
     admission = _evaluate(tmp_path, operation, run=_run(OperatingMode.ADMISSION))
-    exhausted = _evaluate(
+    within_capacity = _evaluate(
         tmp_path,
         operation,
         snapshot=ReservationSnapshot(
-            active_by_tier={"frontier": 2}, reserved_usd=4.0, spent_usd=0.0
+            active_by_tier={"frontier": 1}, reserved_usd=2.0, spent_usd=0.0
         ),
     )
 
     assert allowed.spec.allowed is True
-    assert nested.spec.rule == "STRICTLY_CHEAPER_REQUIRED"
+    assert nested.spec.allowed is True
     assert admission.spec.allowed is True
     assert admission.spec.rule == "ALLOW"
     assert admission.spec.selected_model is None
     assert admission.spec.savings_eligible is False
-    assert exhausted.spec.rule == "SAME_TIER_LIMIT"
+    assert within_capacity.spec.allowed is True
 
 
 def test_depth_may_spawn_and_stronger_child_rules_are_explicit(tmp_path: Path) -> None:

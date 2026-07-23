@@ -123,6 +123,23 @@ def test_codex_provider_emits_current_pre_tool_use_decisions() -> None:
             "permissionDecisionReason": "blocked safely",
         }
     }
+    original = {"task_name": "tests", "message": "opaque", "model": "gpt-5.4"}
+    assert PROVIDER.decorate_updated_input(
+        PROVIDER.emit_decision("approve", "allowed"),
+        original,
+        reasoning_effort="medium",
+    ) == {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "updatedInput": {
+                "task_name": "tests",
+                "message": "opaque",
+                "model": "gpt-5.4",
+                "reasoning_effort": "medium",
+            },
+        }
+    }
 
 
 def test_session_start_accepts_current_documented_codex_payload(
@@ -224,6 +241,53 @@ def test_hook_entrypoints_initialize_deny_and_record_without_raising(
         assert start_rc == 0 and start == {}
         store = Store(home / "state" / "conductor.db")
         assert store.reservation("orphan-child").recoverable is True
+    finally:
+        restore_env(old)
+
+
+def test_codex_hook_fills_omitted_worker_effort_without_changing_other_input(
+    tmp_path: Path,
+) -> None:
+    from conductor.hooks.pre_tool_use import main as pre_tool_main
+    from conductor.hooks.session_start import main as session_main
+
+    _, old = _environment(tmp_path)
+    try:
+        session = {
+            "session_id": "effort-run",
+            "model": "gpt-5.5",
+            "reasoning_effort": "high",
+        }
+        assert _invoke(session_main, session) == (0, {})
+        envelope = (
+            '<CONDUCTOR_TASK>{"schema_version":1,"task_name":"worker",'
+            '"task_class":"implementation","risk_triggers":[],'
+            '"owned_paths":["src/worker.py"],'
+            '"acceptance_checks":["pytest -q"],"new_task":true}</CONDUCTOR_TASK>'
+        )
+        tool_input = {
+            "task_name": "worker",
+            "message": envelope,
+            "fork_turns": "none",
+            "model": "gpt-5.4",
+        }
+
+        rc, response = _invoke(
+            pre_tool_main,
+            {
+                **session,
+                "tool_call_id": "effort-call",
+                "tool_name": "collaboration.spawn_agent",
+                "tool_input": tool_input,
+            },
+        )
+
+        assert rc == 0
+        assert response["hookSpecificOutput"]["permissionDecision"] == "allow"
+        assert response["hookSpecificOutput"]["updatedInput"] == {
+            **tool_input,
+            "reasoning_effort": "medium",
+        }
     finally:
         restore_env(old)
 

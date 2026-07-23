@@ -32,6 +32,18 @@ def test_valid_config_loads_and_auto_tiers_follow_models_cache(tmp_path: Path) -
     assert enabled_tiers(config, models) == [0, 1, 2]
 
 
+def test_enabled_tiers_intersects_the_native_selector_contract(tmp_path: Path) -> None:
+    from conductor.config import enabled_tiers, load_config
+
+    config = load_config(write_config(tmp_path / "conductor.toml"))
+    models = write_models_cache(
+        tmp_path / "models.json",
+        ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"],
+    )
+
+    assert enabled_tiers(config, models, {"gpt-5.4", "gpt-5.4-mini"}) == [1, 2]
+
+
 def test_environment_budget_override_is_validated_strictly(tmp_path: Path) -> None:
     from conductor.config import ConfigError, load_config
 

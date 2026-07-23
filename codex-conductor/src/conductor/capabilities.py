@@ -84,6 +84,23 @@ def contract_digest(contract: CapabilityContract) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def selectable_models(contract: CapabilityContract) -> set[str]:
+    selector = contract.model_selector_path
+    if selector is None:
+        return set()
+    models: set[str] = set()
+    for tool in contract.tools:
+        if tool.canonical_name.value != "spawn":
+            continue
+        schema = _schema_at_path(tool, selector)
+        if not isinstance(schema, dict):
+            continue
+        values = schema.get("enum")
+        if isinstance(values, list):
+            models.update(value for value in values if isinstance(value, str))
+    return models
+
+
 def negotiate(contract: CapabilityContract, payload: object) -> CapabilityResult:
     digest = contract_digest(contract)
     try:
@@ -223,15 +240,19 @@ def _result(
 
 
 def _schema_has_path(tool: ToolContract, path: str) -> bool:
+    return _schema_at_path(tool, path) is not None
+
+
+def _schema_at_path(tool: ToolContract, path: str) -> object | None:
     schema: object = tool.input_schema
     for part in path.split("."):
         if not isinstance(schema, dict):
-            return False
+            return None
         properties = schema.get("properties")
         if not isinstance(properties, dict) or part not in properties:
-            return False
+            return None
         schema = properties[part]
-    return True
+    return schema
 
 
 def _matches_schema(value: object, schema: object) -> bool:

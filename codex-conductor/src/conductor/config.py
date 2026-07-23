@@ -86,13 +86,18 @@ def load_ladder(path: Path | None = None) -> Ladder:
     return load_config(path)
 
 
-def enabled_tiers(ladder: Ladder, models_cache_path: Path) -> list[int]:
+def enabled_tiers(
+    ladder: Ladder,
+    models_cache_path: Path,
+    selector_models: set[str] | None = None,
+) -> list[int]:
     available = _available_model_slugs(models_cache_path)
     enabled: list[int] = []
     for index, tier in enumerate(ladder.tiers):
-        if tier.enabled == "always" or (
+        configured = tier.enabled == "always" or (
             tier.enabled == "auto" and tier.model in available
-        ):
+        )
+        if configured and (selector_models is None or tier.model in selector_models):
             enabled.append(index)
     return enabled
 

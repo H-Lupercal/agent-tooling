@@ -5,6 +5,7 @@ import json
 import os
 import sys
 
+from conductor.capabilities import load_contract, selectable_models
 from conductor.config import (
     enabled_tiers,
     load_config,
@@ -28,7 +29,21 @@ def build_status(
     if selected is None:
         raise StateError("no conductor runs exist")
     snapshot = database.run_snapshot(selected)
-    enabled = enabled_tiers(config, models_cache_path())
+    try:
+        context = database.run_context(selected)
+    except (AttributeError, StateError):
+        selector_models = None
+    else:
+        selector_models = (
+            selectable_models(load_contract(context.provider_contract))
+            if context.provider.value == "codex"
+            else None
+        )
+    enabled = enabled_tiers(
+        config,
+        models_cache_path(),
+        selector_models,
+    )
     warnings: list[str] = []
     committed = snapshot["costs"]["total_usd"] + snapshot["reserved_usd"]
     if committed >= config.budget.run_usd_cap * config.budget.warn_at_fraction:

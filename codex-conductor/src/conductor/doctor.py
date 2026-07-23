@@ -214,7 +214,12 @@ def run_checks(
 
     if config is not None and contract is not None:
         _check_policy_canary(
-            check, provider, config, contract_mode(contract), models_cache
+            check,
+            provider,
+            config,
+            contract_mode(contract),
+            models_cache,
+            contract,
         )
 
     failures = any(item["status"] == "fail" for item in checks)
@@ -468,7 +473,10 @@ def _check_policy_canary(
     config,
     mode: OperatingMode,
     models_cache: Path,
+    contract,
 ) -> None:
+    from conductor.capabilities import selectable_models
+
     now = datetime.now(UTC)
     run = RunContext(
         provider=Provider(provider),
@@ -504,7 +512,8 @@ def _check_policy_canary(
         },
         envelope,
     )
-    enabled = enabled_tiers(config, models_cache)
+    selector_models = selectable_models(contract) if provider == "codex" else None
+    enabled = enabled_tiers(config, models_cache, selector_models)
     result = evaluate_policy(
         operation=operation,
         run=run,

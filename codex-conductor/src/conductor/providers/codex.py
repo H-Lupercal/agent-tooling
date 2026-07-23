@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from pathlib import Path
 
 from conductor.config import Ladder
@@ -50,6 +51,20 @@ class CodexProvider(Provider):
         if decision != "approve":
             output["hookSpecificOutput"]["permissionDecisionReason"] = reason
         return output
+
+    def decorate_updated_input(
+        self,
+        response: dict,
+        tool_input: dict,
+        *,
+        reasoning_effort: str,
+    ) -> dict:
+        decorated = deepcopy(response)
+        decorated["hookSpecificOutput"]["updatedInput"] = {
+            **tool_input,
+            "reasoning_effort": reasoning_effort,
+        }
+        return decorated
 
     def handle_lifecycle(self, payload: dict) -> None:
         # Codex records both SubagentStart and SubagentStop natively.

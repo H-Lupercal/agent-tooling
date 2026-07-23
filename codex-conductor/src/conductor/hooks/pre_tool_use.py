@@ -6,7 +6,12 @@ import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from conductor.capabilities import contract_digest, load_contract, negotiate
+from conductor.capabilities import (
+    contract_digest,
+    load_contract,
+    negotiate,
+    selectable_models,
+)
 from conductor.config import (
     ConductorConfig,
     config_digest,
@@ -317,6 +322,35 @@ def _spawn_notice_for(
     return _spawn_notice(model, effort, reservation.task_id)
 
 
+def _decorate_resolved_effort(
+    response: dict,
+    payload: dict,
+    decision: Decision,
+    store: Store,
+    run_id: str,
+    provider,
+) -> dict:
+    tool_input = payload.get("tool_input")
+    if (
+        provider.name != "codex"
+        or not decision.allowed
+        or decision.operation is not OperationName.SPAWN
+        or decision.reservation_id is None
+        or not isinstance(tool_input, dict)
+        or tool_input.get("reasoning_effort") is not None
+        or (tool_input.get("fork_turns") == "all" and tool_input.get("model") is None)
+    ):
+        return response
+    reservation = store.reservation(decision.reservation_id, run_id=run_id)
+    if reservation.reasoning_effort is None:
+        return response
+    return provider.decorate_updated_input(
+        response,
+        tool_input,
+        reasoning_effort=reservation.reasoning_effort,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     from conductor.providers import get_provider
 
@@ -349,13 +383,21 @@ def main(argv: list[str] | None = None) -> int:
                 lease_seconds=max(300, config.policy.reservation_ttl_seconds * 2),
             )
             run = _effective_run_context(store.run_context(caller.run_id), payload)
+            contract = load_contract(run.provider_contract)
+            selector_models = (
+                selectable_models(contract) if provider.name == "codex" else None
+            )
             decision = decide(
                 payload,
                 config,
                 store,
                 run,
                 caller,
-                enabled_tiers(config, models_cache_path()),
+                enabled_tiers(
+                    config,
+                    models_cache_path(),
+                    selector_models,
+                ),
                 provider_name=provider.name,
             )
         response = provider.emit_decision(
@@ -366,6 +408,14 @@ def main(argv: list[str] | None = None) -> int:
             notice = _spawn_notice_for(decision, store, caller.run_id, config)
             if notice is not None:
                 response = provider.decorate_spawn_notice(response, notice)
+            response = _decorate_resolved_effort(
+                response,
+                payload,
+                decision,
+                store,
+                caller.run_id,
+                provider,
+            )
         write_json(response)
     except (ConductorError, OSError, ValueError, json.JSONDecodeError) as exc:
         log_error("pre_tool_use", exc)
