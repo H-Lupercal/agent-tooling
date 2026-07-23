@@ -98,6 +98,11 @@ class ClaudeProvider(Provider):
             }
         }
 
+    def decorate_spawn_notice(self, response: dict, notice: str) -> dict:
+        decorated = dict(response)
+        decorated["systemMessage"] = notice
+        return decorated
+
     def handle_lifecycle(self, payload: dict) -> None:
         from conductor.hooks.lifecycle import handle
 

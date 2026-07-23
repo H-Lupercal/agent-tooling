@@ -272,6 +272,51 @@ def _is_governed(payload: dict) -> bool:
     return bool(result.operation and result.operation.is_new_work)
 
 
+def _spawn_notice(model: str, effort: str, task: str) -> str:
+    return f"Spawning {model} · {effort} · {task}"
+
+
+def _tier_effort(config: ConductorConfig, model: str) -> str | None:
+    tier = config.tier_for_model(model)
+    return tier.reasoning_effort if tier is not None else None
+
+
+def _spawn_notice_for(
+    decision: Decision,
+    store: Store,
+    run_id: str,
+    config: ConductorConfig,
+) -> str | None:
+    """Return the spawn-notice text for a display-eligible decision, else None.
+
+    Eligible = approved AND operation is SPAWN AND mode is ROUTING AND
+    savings_eligible AND a reservation id is present AND the committed
+    reservation still yields a model whose tier effort is resolvable. Any
+    missing datum returns None (no notice); this function never raises.
+    """
+
+    if not (
+        decision.allowed
+        and decision.operation is OperationName.SPAWN
+        and decision.mode is OperatingMode.ROUTING
+        and decision.savings_eligible
+        and decision.reservation_id is not None
+    ):
+        return None
+    try:
+        reservation = store.reservation(decision.reservation_id, run_id=run_id)
+    except (StateError, ValueError) as exc:
+        log_error("pre_tool_use", exc)
+        return None
+    model = reservation.model
+    if not model:
+        return None
+    effort = reservation.reasoning_effort or _tier_effort(config, model)
+    if effort is None:
+        return None
+    return _spawn_notice(model, effort, reservation.task_id)
+
+
 def main(argv: list[str] | None = None) -> int:
     from conductor.providers import get_provider
 
@@ -286,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
 
         config = load_config()
         caller = provider.resolve_caller(payload, config)
+        store = None
         if caller.run_id is None:
             decision = _ephemeral(
                 allowed=False,
@@ -312,12 +358,15 @@ def main(argv: list[str] | None = None) -> int:
                 enabled_tiers(config, models_cache_path()),
                 provider_name=provider.name,
             )
-        write_json(
-            provider.emit_decision(
-                "approve" if decision.allowed else "block",
-                f"{decision.rule}: {decision.message}",
-            )
+        response = provider.emit_decision(
+            "approve" if decision.allowed else "block",
+            f"{decision.rule}: {decision.message}",
         )
+        if decision.allowed and store is not None and caller.run_id is not None:
+            notice = _spawn_notice_for(decision, store, caller.run_id, config)
+            if notice is not None:
+                response = provider.decorate_spawn_notice(response, notice)
+        write_json(response)
     except (ConductorError, OSError, ValueError, json.JSONDecodeError) as exc:
         log_error("pre_tool_use", exc)
         governed = _is_governed(payload)

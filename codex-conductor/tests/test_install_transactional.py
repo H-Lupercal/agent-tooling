@@ -110,6 +110,14 @@ def test_install_writes_hash_manifest_and_post_tool_correlation_hook(
     assert "followup_task" in pre_matcher
     assert "followup_task" in post_matcher
     assert "send_message" in post_matcher
+    qualified_names = {
+        "collaboration.spawn_agent",
+        "collaboration.assign_agent_task",
+        "collaboration.followup_task",
+        "collaboration.send_message",
+    }
+    assert qualified_names <= set(pre_matcher.split("|"))
+    assert qualified_names <= set(post_matcher.split("|"))
 
 
 @pytest.mark.parametrize(

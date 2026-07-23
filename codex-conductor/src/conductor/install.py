@@ -387,6 +387,19 @@ def _render_hooks_json(hooks_dir: Path) -> str:
     def command(module: str) -> str:
         return _hook_command(hooks_dir / f"{module}.py")
 
+    collaboration_tools = (
+        "spawn_agent",
+        "collaboration.spawn_agent",
+        "assign_agent_task",
+        "collaboration.assign_agent_task",
+        "followup_task",
+        "collaboration.followup_task",
+        "send_message",
+        "collaboration.send_message",
+        "send_agent_message",
+    )
+    collaboration_matcher = "|".join(collaboration_tools)
+
     data = {
         "description": "Managed by codex-conductor",
         "hooks": {
@@ -405,7 +418,7 @@ def _render_hooks_json(hooks_dir: Path) -> str:
             ],
             "PreToolUse": [
                 {
-                    "matcher": "spawn_agent|assign_agent_task|followup_task|send_message|send_agent_message",
+                    "matcher": collaboration_matcher,
                     "hooks": [
                         {
                             "type": "command",
@@ -418,7 +431,7 @@ def _render_hooks_json(hooks_dir: Path) -> str:
             ],
             "PostToolUse": [
                 {
-                    "matcher": "spawn_agent|assign_agent_task|followup_task|send_message|send_agent_message",
+                    "matcher": collaboration_matcher,
                     "hooks": [
                         {
                             "type": "command",

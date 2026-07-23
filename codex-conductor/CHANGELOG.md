@@ -7,6 +7,12 @@ Keep a Changelog, and the project uses Semantic Versioning.
 
 ### Added
 
+- Show a spawn notice when Conductor approves a savings-eligible, routed Claude
+  `Task` subagent. The Claude `PreToolUse` hook adds a top-level `systemMessage`
+  (`Spawning <model> · <effort> · <task>`) to the allow response, surfacing the
+  effective worker model, its tier reasoning effort, and the task in both the
+  Claude CLI and VS Code extension. Display is best-effort and never gates
+  admission; Codex output is unchanged.
 - Add GPT-5.6 Sol, Terra, and Luna to the Codex ladder with explicit model
   generation, capability, and six-level reasoning-effort ceilings.
 - Persist accepted worker effort through an additive SQLite migration and

@@ -41,6 +41,13 @@ class Provider:
         """Serialize an approve/block decision into the runtime's hook output."""
         raise NotImplementedError
 
+    def decorate_spawn_notice(self, response: dict, notice: str) -> dict:
+        """Return an approved allow response enriched with an informational
+        spawn notice. Default no-op: providers that can surface a cross-client
+        message override this. Must not mutate ``response`` or alter the
+        permission decision."""
+        return response
+
     def post_approve_events(
         self, request: ToolRequest, caller: Caller, ladder: Ladder
     ) -> list[dict]:
