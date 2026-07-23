@@ -19,7 +19,12 @@ migration, deleting or rewriting more than 200 lines, public API contract
 change, concurrency/locking, build or release pipeline change,
 security-sensitive input parsing, secrets handling, production configuration.
 
-Every governed spawn/new task must include this envelope in the prompt:
+Every governed spawn/new task must include this envelope. For Codex native
+`collaboration.spawn_agent`, append it to the plaintext `task_name` after a
+newline and wrap it in `<HOOK_CONTEXT>...</HOOK_CONTEXT>`; Codex strips that
+suffix before creating the child path. The `message` argument is encrypted
+before local hooks can inspect it. For other governed tools, include the
+envelope in the prompt:
 `<CONDUCTOR_TASK>{"schema_version":1,"task_name":"tests_ledger","task_class":"tests","risk_triggers":[],"owned_paths":["tests/test_ledger.py"],"acceptance_checks":["python -m pytest tests/test_ledger.py -q"],"new_task":true}</CONDUCTOR_TASK>`
 
 In routing mode, pass both `model` and `reasoning_effort` on an override spawn.

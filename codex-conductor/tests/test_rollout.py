@@ -21,6 +21,33 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(latest_usage(root).total_tokens, 2500)
         self.assertEqual(latest_usage(child).input_tokens, 17425)
 
+    def test_reads_latest_turn_reasoning_effort(self):
+        from conductor.rollout import latest_reasoning_effort
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rollout = Path(tmp) / "rollout.jsonl"
+            rollout.write_text(
+                "\n".join(
+                    json.dumps(event)
+                    for event in (
+                        {"type": "session_meta", "payload": {"id": "root"}},
+                        {"type": "turn_context", "payload": {"effort": "low"}},
+                        {
+                            "type": "turn_context",
+                            "payload": {
+                                "collaboration_mode": {
+                                    "settings": {"reasoning_effort": "high"}
+                                }
+                            },
+                        },
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(latest_reasoning_effort(rollout), "high")
+
     def test_find_rollout_by_thread_id(self):
         from conductor.rollout import find_rollout
 

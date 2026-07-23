@@ -1,10 +1,72 @@
 import json
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class InstallTests(unittest.TestCase):
+    def test_codex_hook_hashes_match_runtime_normalization(self):
+        from conductor.install import _codex_hook_trust_entries, _render_hooks_json
+
+        hooks_path = Path("/opt/conductor/hooks.json")
+        with patch("conductor.install.sys.executable", "/usr/bin/python3"):
+            entries = _codex_hook_trust_entries(
+                hooks_path, _render_hooks_json(Path("/opt/conductor/hooks"))
+            )
+
+        self.assertEqual(
+            entries[f"{hooks_path}:pre_tool_use:0:0"],
+            "sha256:ceae1d8444392b1a494c0d71237d3541a0db4771de8790b2d1f533cd6c90f779",
+        )
+        self.assertEqual(
+            entries[f"{hooks_path}:post_tool_use:0:0"],
+            "sha256:c75f6a1633d9663b0641eb7b7c816c623fdeaa902c938ab5c024c3b98a30cca0",
+        )
+
+    def test_install_trusts_generated_codex_hooks_and_replaces_stale_state(self):
+        from conductor.install import install
+
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_home = Path(tmp) / ".codex"
+            codex_home.mkdir()
+            hooks_path = codex_home / "hooks.json"
+            stale_key = f"{hooks_path}:pre_tool_use:0:0"
+            unrelated_key = "/tmp/other-hooks.json:pre_tool_use:0:0"
+            (codex_home / "config.toml").write_text(
+                "\n".join(
+                    (
+                        f'[hooks.state."{stale_key}"]',
+                        'trusted_hash = "sha256:stale"',
+                        "",
+                        f'[hooks.state."{unrelated_key}"]',
+                        'trusted_hash = "sha256:keep"',
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            install(codex_home=codex_home, agents_path=Path(tmp) / "AGENTS.md")
+
+            config = tomllib.loads((codex_home / "config.toml").read_text())
+            states = config["hooks"]["state"]
+            conductor_states = {
+                key: value
+                for key, value in states.items()
+                if key.startswith(str(hooks_path))
+            }
+            self.assertEqual(len(conductor_states), 5)
+            self.assertTrue(
+                all(
+                    value["trusted_hash"].startswith("sha256:")
+                    and value["trusted_hash"] != "sha256:stale"
+                    for value in conductor_states.values()
+                )
+            )
+            self.assertEqual(states[unrelated_key]["trusted_hash"], "sha256:keep")
+
     def test_policy_template_uses_installed_package(self):
         from conductor.install import _render_policy
 

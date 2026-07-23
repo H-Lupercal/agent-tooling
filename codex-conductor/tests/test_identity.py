@@ -112,6 +112,29 @@ def test_codex_caller_reads_active_reasoning_effort(tmp_path: Path) -> None:
     assert caller.effort == "high"
 
 
+def test_codex_caller_reads_active_reasoning_effort_from_rollout(
+    tmp_path: Path,
+) -> None:
+    from conductor.config import load_ladder
+    from conductor.identity import resolve_caller
+
+    transcript = tmp_path / "rollout-root-run.jsonl"
+    transcript.write_text(
+        (FIXTURES / "rollout_root.jsonl").read_text(encoding="utf-8")
+        + '{"type":"turn_context","payload":{"effort":"high"}}\n',
+        encoding="utf-8",
+    )
+    ladder = load_ladder(write_config(tmp_path / "conductor.toml", DEFAULT_CONFIG))
+
+    caller = resolve_caller(
+        {"model": "gpt-5.5", "transcript_path": str(transcript)},
+        ladder,
+        tmp_path / "sessions",
+    )
+
+    assert caller.effort == "high"
+
+
 def test_unknown_identity_and_model_use_explicit_posture_without_tier_fabrication(
     tmp_path: Path,
 ) -> None:

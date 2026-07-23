@@ -162,6 +162,28 @@ def test_cli_version_check_handles_missing_executable_and_subprocess_error(
     assert results[-1][0:2] == ("provider_cli", "warn")
 
 
+def test_codex_hook_runtime_rejects_stale_conductor_trust_hash(tmp_path: Path) -> None:
+    from conductor.install import install
+
+    home = tmp_path / ".codex"
+    install(codex_home=home, agents_path=tmp_path / "AGENTS.md")
+    config_path = home / "config.toml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            'trusted_hash = "sha256:',
+            'trusted_hash = "sha256:stale-',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    results, collect = _collector()
+
+    doctor._check_codex_hook_runtime(collect, config_path, home / "hooks.json")
+
+    assert results[-1][0:2] == ("hook_runtime", "fail")
+    assert "inactive" in results[-1][2]
+
+
 def test_main_renders_json_and_human_reports(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -21,7 +21,7 @@
         "type": "object",
         "required": ["task_name", "message"],
         "properties": {
-          "task_name": {"type": "string", "minLength": 1, "maxLength": 128},
+          "task_name": {"type": "string", "minLength": 1, "maxLength": 16640},
           "message": {"type": "string", "minLength": 1},
           "fork_turns": {"type": "string"},
           "model": {

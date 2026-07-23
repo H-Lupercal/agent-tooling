@@ -39,6 +39,33 @@ class ToolAdapterTests(unittest.TestCase):
         self.assertEqual(request.requested_model, "gpt-5.6-terra")
         self.assertEqual(request.requested_effort, "medium")
 
+    def test_spawn_payload_extracts_envelope_from_task_name_hook_context(self):
+        from conductor.tool_adapter import normalize_tool_request
+
+        envelope = (
+            '<CONDUCTOR_TASK>{"schema_version":1,"task_name":"tests_ledger",'
+            '"task_class":"tests","risk_triggers":[],"owned_paths":'
+            '["tests/test_ledger.py"],"acceptance_checks":["pytest -q"],'
+            '"new_task":true}</CONDUCTOR_TASK>'
+        )
+        request = normalize_tool_request(
+            {
+                "tool_name": "collaboration.spawn_agent",
+                "tool_input": {
+                    "message": "gAAAAAB-encrypted-agent-message",
+                    "task_name": (
+                        "tests_ledger\n<HOOK_CONTEXT>" + envelope + "</HOOK_CONTEXT>"
+                    ),
+                    "model": "gpt-5.6-luna",
+                    "reasoning_effort": "medium",
+                },
+            }
+        )
+
+        self.assertIsNotNone(request.envelope)
+        self.assertEqual(request.envelope.task_class, "tests")
+        self.assertEqual(request.task_name, "tests_ledger")
+
     def test_other_tool_is_ignored(self):
         from conductor.tool_adapter import normalize_tool_request
 

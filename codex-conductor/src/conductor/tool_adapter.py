@@ -149,9 +149,11 @@ def normalize_tool_request(payload: dict, schema: dict | None = None) -> ToolReq
     requested_effort = _first_string(
         tool_input, ("reasoning_effort", "model_reasoning_effort")
     )
-    task_name = _first_string(tool_input, ("task_name", "name"))
-    if envelope is not None:
-        task_name = task_name or envelope.task_name
+    task_name = (
+        envelope.task_name
+        if envelope is not None
+        else _first_string(tool_input, ("task_name", "name"))
+    )
     return ToolRequest(
         kind=kind,
         tool_name=tool_name,
@@ -288,7 +290,14 @@ def _first_string(data: dict[str, Any], keys: tuple[str, ...]) -> str | None:
 
 def _prompt_text(tool_input: dict[str, Any]) -> str:
     parts: list[str] = []
-    for key in ("message", "prompt", "task", "instructions", "content"):
+    for key in (
+        "message",
+        "prompt",
+        "task",
+        "task_name",
+        "instructions",
+        "content",
+    ):
         value = tool_input.get(key)
         if isinstance(value, str):
             parts.append(value)

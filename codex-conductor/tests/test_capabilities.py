@@ -52,6 +52,21 @@ def test_current_codex_contract_routes_verified_model_and_effort_fields() -> Non
     assert contract.reasoning_effort_selector_path == "reasoning_effort"
 
 
+def test_current_codex_contract_accepts_task_name_hook_context_carrier() -> None:
+    from conductor.capabilities import load_contract, negotiate
+
+    payload = fixture("codex-spawn")
+    payload["task_name"] = (
+        "tests_ledger\n<HOOK_CONTEXT><CONDUCTOR_TASK>"
+        + "x" * 512
+        + "</CONDUCTOR_TASK></HOOK_CONTEXT>"
+    )
+
+    result = negotiate(load_contract("codex-current"), payload)
+
+    assert result.mode is OperatingMode.ROUTING
+
+
 def test_codex_contract_without_effort_control_cannot_claim_routing() -> None:
     from conductor.capabilities import contract_mode, load_contract
 

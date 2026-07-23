@@ -19,6 +19,7 @@ from conductor.install import (
     MANIFEST_NAME,
     POLICY_END,
     POLICY_START,
+    _codex_hook_trust_entries,
     _codex_user_hooks_disabled_reason,
     _file_sha256,
     _load_manifest,
@@ -139,7 +140,7 @@ def run_checks(
             settings=True,
         )
     else:
-        _check_codex_hook_runtime(check, home / "config.toml")
+        _check_codex_hook_runtime(check, home / "config.toml", home / "hooks.json")
         _check_json_hooks(
             check,
             home / "hooks.json",
@@ -158,9 +159,8 @@ def run_checks(
         else:
             check("models_cache", "warn", "absent; auto tiers are disabled")
         notes.append(
-            "Codex hook trust is provider-managed and cannot be inferred from "
-            "the files alone; approve the installed hook hashes in a trusted "
-            "interactive session."
+            "Codex hook trust fingerprints are verified against the generated "
+            "Conductor hooks; reinstall Conductor after changing hook definitions."
         )
 
     _check_wrappers(check, hooks_dir)
@@ -305,7 +305,7 @@ def _check_json_hooks(
     )
 
 
-def _check_codex_hook_runtime(check, path: Path) -> None:
+def _check_codex_hook_runtime(check, path: Path, hooks_path: Path) -> None:
     if not path.exists():
         check("hook_runtime", "fail", f"Codex config is missing: {path}")
         return
@@ -318,7 +318,31 @@ def _check_codex_hook_runtime(check, path: Path) -> None:
     if reason is not None:
         check("hook_runtime", "fail", f"Codex config disables user hooks: {reason}")
         return
-    check("hook_runtime", "ok", "user hooks are enabled")
+    try:
+        expected = _codex_hook_trust_entries(
+            hooks_path, hooks_path.read_text(encoding="utf-8")
+        )
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        check("hook_runtime", "fail", f"cannot verify Conductor hook trust: {exc}")
+        return
+    states = value.get("hooks", {}).get("state", {})
+    inactive = [
+        key
+        for key, digest in expected.items()
+        if not isinstance(states.get(key), dict)
+        or states[key].get("trusted_hash") != digest
+    ]
+    if inactive:
+        events = ", ".join(key.rsplit(":", 3)[-3] for key in inactive)
+        check(
+            "hook_runtime",
+            "fail",
+            f"inactive Conductor hooks need trust refresh: {events}; reinstall Conductor",
+        )
+        return
+    check(
+        "hook_runtime", "ok", "user hooks are enabled and Conductor hooks are trusted"
+    )
 
 
 def _event_has_hook(value: object, hooks_dir: Path) -> bool:

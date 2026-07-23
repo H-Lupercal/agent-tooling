@@ -59,6 +59,36 @@ def latest_usage(path: Path) -> TokenUsage | None:
     return None
 
 
+def latest_reasoning_effort(path: Path) -> str | None:
+    data = _read_file(Path(path), max_bytes=64 * 1024 * 1024, tail_bytes=262_144)
+    if data is None:
+        return None
+    for line in reversed(data.decode("utf-8", errors="replace").splitlines()):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") != "turn_context":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        effort = payload.get("effort")
+        if not isinstance(effort, str) or not effort:
+            collaboration_mode = payload.get("collaboration_mode")
+            settings = (
+                collaboration_mode.get("settings")
+                if isinstance(collaboration_mode, dict)
+                else None
+            )
+            effort = (
+                settings.get("reasoning_effort") if isinstance(settings, dict) else None
+            )
+        if isinstance(effort, str) and 0 < len(effort) <= 64:
+            return effort
+    return None
+
+
 def claude_transcript_usage(path: Path) -> tuple[str, dict[str, int]] | None:
     """Aggregate one bounded child transcript without using parent sidechains."""
 

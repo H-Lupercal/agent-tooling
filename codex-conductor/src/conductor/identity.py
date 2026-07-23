@@ -14,7 +14,12 @@ from pydantic import ValidationError
 from conductor.capabilities import contract_digest, contract_mode, load_contract
 from conductor.config import Ladder, config_digest, load_config
 from conductor.errors import StateError
-from conductor.rollout import SessionMeta, find_rollout, read_session_meta
+from conductor.rollout import (
+    SessionMeta,
+    find_rollout,
+    latest_reasoning_effort,
+    read_session_meta,
+)
 from conductor.schemas import Provider, RunContext
 
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -55,6 +60,7 @@ def resolve_caller(payload: dict, ladder: Ladder, sessions_root: Path) -> Caller
             path = Path.cwd() / path
         try:
             meta = read_session_meta(path)
+            effort = effort or latest_reasoning_effort(path) or ""
             thread_id = thread_id or _identifier_or_none(meta.thread_id)
             current_parent = _identifier_or_none(meta.parent_thread_id)
             if meta.thread_source == "subagent":

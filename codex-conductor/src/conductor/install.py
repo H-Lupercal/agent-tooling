@@ -284,8 +284,19 @@ def _install_codex(
         )
         written.append(dst)
     hooks_json = _render_hooks_json(hooks_dir)
-    _write_or_diff(codex_home / "hooks.json", hooks_json, dry_run)
-    written.append(codex_home / "hooks.json")
+    hooks_path = codex_home / "hooks.json"
+    _write_or_diff(hooks_path, hooks_json, dry_run)
+    written.append(hooks_path)
+    trust_entries = _codex_hook_trust_entries(hooks_path, hooks_json)
+    trust_tables = tuple(
+        line
+        for key, digest in sorted(trust_entries.items())
+        for line in (
+            f"[hooks.state.{json.dumps(key)}]",
+            f"trusted_hash = {json.dumps(digest)}",
+            "",
+        )
+    )
     config_block = "\n".join(
         (
             CONFIG_START,
@@ -293,12 +304,14 @@ def _install_codex(
             "max_threads = 8",
             "max_depth = 3",
             "job_max_runtime_seconds = 1800",
+            "",
+            *trust_tables,
             CONFIG_END,
             "",
         )
     )
-    _upsert_block(
-        codex_home / "config.toml", CONFIG_START, CONFIG_END, config_block, dry_run
+    _upsert_codex_config(
+        codex_home / "config.toml", config_block, tuple(trust_entries), dry_run
     )
     written.append(codex_home / "config.toml")
     policy = _render_policy(provider="codex")
@@ -467,6 +480,66 @@ def _render_hooks_json(hooks_dir: Path) -> str:
         },
     }
     return json.dumps(data, indent=2, sort_keys=True) + "\n"
+
+
+_CODEX_HOOK_EVENT_KEYS = {
+    "PreToolUse": "pre_tool_use",
+    "PermissionRequest": "permission_request",
+    "PostToolUse": "post_tool_use",
+    "PreCompact": "pre_compact",
+    "PostCompact": "post_compact",
+    "SessionStart": "session_start",
+    "SessionEnd": "session_end",
+    "UserPromptSubmit": "user_prompt_submit",
+    "SubagentStart": "subagent_start",
+    "SubagentStop": "subagent_stop",
+    "Stop": "stop",
+}
+
+
+def _codex_hook_trust_entries(hooks_path: Path, hooks_json: str) -> dict[str, str]:
+    """Return Codex trust-state hashes for Conductor's generated command hooks."""
+    hooks_file = json.loads(hooks_json)
+    entries: dict[str, str] = {}
+    for event_name, groups in hooks_file["hooks"].items():
+        event_key = _CODEX_HOOK_EVENT_KEYS[event_name]
+        for group_index, group in enumerate(groups):
+            for handler_index, handler in enumerate(group["hooks"]):
+                if handler.get("type") != "command":
+                    continue
+                timeout = handler.get("timeout")
+                if event_name == "SessionEnd":
+                    timeout = min(max(timeout if timeout is not None else 1, 1), 3)
+                else:
+                    timeout = max(timeout if timeout is not None else 600, 1)
+                normalized_handler = {
+                    "async": bool(handler.get("async", False)),
+                    "command": handler["command"],
+                    "timeout": timeout,
+                    "type": "command",
+                }
+                if handler.get("statusMessage") is not None:
+                    normalized_handler["statusMessage"] = handler["statusMessage"]
+                additional_context_limit = handler.get("additionalContextLimit")
+                if (
+                    additional_context_limit is not None
+                    and additional_context_limit != 2500
+                ):
+                    normalized_handler["additionalContextLimit"] = (
+                        additional_context_limit
+                    )
+                identity = {
+                    "event_name": event_key,
+                    "hooks": [normalized_handler],
+                }
+                if group.get("matcher") is not None:
+                    identity["matcher"] = group["matcher"]
+                canonical = json.dumps(
+                    identity, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+                key = f"{hooks_path}:{event_key}:{group_index}:{handler_index}"
+                entries[key] = f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+    return entries
 
 
 # --------------------------------------------------------------------------- #
@@ -686,6 +759,25 @@ def _render_policy(project_root: Path | None = None, provider: str = "codex") ->
 def _upsert_block(path: Path, start: str, end: str, block: str, dry_run: bool) -> None:
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     new_text = _strip_block(text, start, end).rstrip() + "\n\n" + block.rstrip() + "\n"
+    _write_or_diff(path, new_text, dry_run)
+
+
+def _upsert_codex_config(
+    path: Path, block: str, hook_state_keys: tuple[str, ...], dry_run: bool
+) -> None:
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    text = _strip_block(text, CONFIG_START, CONFIG_END)
+    headers = {f"[hooks.state.{json.dumps(key)}]" for key in hook_state_keys}
+    lines = text.splitlines(keepends=True)
+    retained: list[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            skipping = stripped in headers
+        if not skipping:
+            retained.append(line)
+    new_text = "".join(retained).rstrip() + "\n\n" + block.rstrip() + "\n"
     _write_or_diff(path, new_text, dry_run)
 
 
