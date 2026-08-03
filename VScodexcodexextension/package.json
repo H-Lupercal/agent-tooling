@@ -1,0 +1,62 @@
+{
+  "name": "codex-history-viewer",
+  "displayName": "Codex History Viewer",
+  "description": "Open local Codex conversation history in editor tabs and resume sessions in an editor terminal.",
+  "version": "0.1.0",
+  "publisher": "local-tools",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "codex",
+    "history",
+    "conversation",
+    "transcript"
+  ],
+  "activationEvents": [
+    "onCommand:codexHistory.openConversation"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codexHistory.openConversation",
+        "title": "Open Conversation",
+        "category": "Codex History"
+      }
+    ],
+    "configuration": {
+      "title": "Codex History Viewer",
+      "properties": {
+        "codexHistory.codexHome": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Optional Codex home directory. Defaults to CODEX_HOME, then ~/.codex."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('out',{recursive:true,force:true})\"",
+    "compile": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "npm run clean && npm run compile && node --test out/test/*.test.js",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "package": "npm run check && vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.9.2",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.46.3"
+  }
+}
