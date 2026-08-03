@@ -9,7 +9,10 @@ type JsonObject = Record<string, unknown>;
 
 const SESSION_ID_IN_NAME = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/iu;
 
-export async function parseSessionFile(filePath: string): Promise<ParsedSession> {
+export async function parseSessionFile(
+  filePath: string,
+  threadTitles: ReadonlyMap<string, string> = new Map(),
+): Promise<ParsedSession> {
   const primaryMessages: TranscriptMessage[] = [];
   const fallbackMessages: TranscriptMessage[] = [];
   let sessionId: string | undefined;
@@ -75,7 +78,7 @@ export async function parseSessionFile(filePath: string): Promise<ParsedSession>
     filePath,
     sessionId: resolvedId,
     ...(cwd ? { cwd } : {}),
-    title: createTitle(firstUserMessage),
+    title: threadTitles.get(resolvedId) ?? createTitle(firstUserMessage),
     ...(createdAt ? { createdAt } : {}),
     updatedAtMs: details.mtimeMs,
     skippedRecords,
@@ -86,6 +89,7 @@ export async function parseSessionFile(filePath: string): Promise<ParsedSession>
 export async function loadSessionSummaries(
   filePaths: readonly string[],
   concurrency = 8,
+  threadTitles: ReadonlyMap<string, string> = new Map(),
 ): Promise<SessionSummary[]> {
   const results: Array<SessionSummary | undefined> = Array.from(
     { length: filePaths.length },
@@ -103,7 +107,7 @@ export async function loadSessionSummaries(
         continue;
       }
       try {
-        const parsed = await parseSessionFile(filePath);
+        const parsed = await parseSessionFile(filePath, threadTitles);
         results[index] = {
           filePath: parsed.filePath,
           sessionId: parsed.sessionId,

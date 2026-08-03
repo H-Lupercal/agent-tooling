@@ -119,3 +119,25 @@ test("parser truncates and normalizes long titles", async (context) => {
   assert.equal(parsed.title.length, 80);
   assert.match(parsed.title, /…$/u);
 });
+
+test("parser prefers Codex's generated thread title", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "codex-history-parser-"));
+  context.after(async () => rm(root, { force: true, recursive: true }));
+  const sessionId = "019fc513-7044-7281-979d-6660f0ee8acd";
+  const filePath = path.join(root, `rollout-${sessionId}.jsonl`);
+  await writeFile(
+    filePath,
+    JSON.stringify({
+      type: "event_msg",
+      payload: { type: "user_message", message: "A long and awkward first prompt" },
+    }),
+    "utf8",
+  );
+
+  const parsed = await parseSessionFile(
+    filePath,
+    new Map([[sessionId, "Generated Codex title"]]),
+  );
+
+  assert.equal(parsed.title, "Generated Codex title");
+});

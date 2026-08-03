@@ -12,6 +12,7 @@ import type { ParsedSession, SessionSummary } from "./model";
 import { loadSessionSummaries, parseSessionFile } from "./parser";
 import { renderTranscriptHtml } from "./render";
 import { createResumePlan } from "./resume";
+import { loadThreadTitles } from "./thread-index";
 
 const openPanels = new Map<string, vscode.WebviewPanel>();
 
@@ -57,8 +58,9 @@ async function openConversationPicker(): Promise<void> {
       return;
     }
 
+    const threadTitles = await loadThreadTitles(codexHome);
     const summaries = sortSessionSummaries(
-      await loadSessionSummaries(filePaths),
+      await loadSessionSummaries(filePaths, 8, threadTitles),
       workspaceRoots(),
     );
     if (summaries.length === 0) {
@@ -108,7 +110,7 @@ async function openConversationPicker(): Promise<void> {
         return;
       }
       picker.hide();
-      void openTranscript(selected.summary).catch((error: unknown) => {
+      void openTranscript(selected.summary, threadTitles).catch((error: unknown) => {
         void vscode.window.showErrorMessage(errorMessage("Could not open Codex conversation", error));
       });
     });
@@ -132,14 +134,17 @@ function toHistoryItem(summary: SessionSummary): HistoryItem {
   };
 }
 
-async function openTranscript(summary: SessionSummary): Promise<void> {
+async function openTranscript(
+  summary: SessionSummary,
+  threadTitles: ReadonlyMap<string, string>,
+): Promise<void> {
   const existing = openPanels.get(summary.sessionId);
   if (existing) {
     existing.reveal(vscode.ViewColumn.Active);
     return;
   }
 
-  let session = await parseSessionFile(summary.filePath);
+  let session = await parseSessionFile(summary.filePath, threadTitles);
   const panel = vscode.window.createWebviewPanel(
     "codexHistory.transcript",
     `Codex: ${session.title}`,
@@ -159,7 +164,7 @@ async function openTranscript(summary: SessionSummary): Promise<void> {
     }
   });
   const watcher = createSessionWatcher(summary.filePath, async () => {
-    session = await parseSessionFile(summary.filePath);
+    session = await parseSessionFile(summary.filePath, threadTitles);
     panel.title = `Codex: ${session.title}`;
     renderPanel(panel, session);
   });

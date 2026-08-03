@@ -5,7 +5,7 @@ conversations in editor tabs and resuming them in editor-area terminals.
 
 ## Features
 
-- Search previous Codex conversations by title, repository, date, or session ID.
+- Search previous Codex conversations by Codex-generated title, repository, date, or session ID.
 - Default to conversations from the current workspace.
 - Toggle between the current workspace and all repositories.
 - Open readable, read-only transcripts in editor tabs.
@@ -87,4 +87,6 @@ to `out/`.
 
 Codex's on-disk JSONL format can evolve. The parser handles the current event and
 response message formats defensively, skips malformed or unsupported records,
-and reports skipped-record counts without displaying their raw contents.
+and reports skipped-record counts without displaying their raw contents. When a
+session has no entry in Codex's local thread index, its first user message is used
+as the fallback title.
