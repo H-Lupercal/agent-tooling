@@ -20,3 +20,10 @@ export function createResumePlan(sessionId: string, cwd: string): ResumePlan {
     cwd,
   };
 }
+
+export function resolveResumeViewColumn(
+  transcriptViewColumn: number | undefined,
+  activeViewColumn: number,
+): number {
+  return transcriptViewColumn ?? activeViewColumn;
+}

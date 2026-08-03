@@ -10,8 +10,9 @@ conversations in editor tabs and resuming them in editor-area terminals.
 - Default to conversations from the current workspace.
 - Toggle between the current workspace and all repositories.
 - Open readable, read-only transcripts in editor tabs.
+- Restore open transcript tabs when their VS Code window reopens.
 - Refresh an open transcript when its local session file changes.
-- Resume a conversation with the official Codex CLI.
+- Resume a conversation with the official Codex CLI in the transcript's editor group.
 
 ## Install from source
 

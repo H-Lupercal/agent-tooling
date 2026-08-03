@@ -36,7 +36,7 @@ export function renderTranscriptHtml(session: ParsedSession, nonce: string): str
     .empty { color: var(--vscode-descriptionForeground); }
   </style>
 </head>
-<body>
+<body data-session-id="${escapeHtml(session.sessionId)}" data-file-path="${escapeHtml(session.filePath)}">
   <header>
     <h1>${escapeHtml(session.title)}</h1>
     <div class="metadata">${escapeHtml(session.cwd ?? "Unknown working directory")}</div>
@@ -46,6 +46,9 @@ export function renderTranscriptHtml(session: ParsedSession, nonce: string): str
   <main>${messages}</main>
   <script nonce="${safeNonce}">
     const vscode = acquireVsCodeApi();
+    const sessionId = document.body.dataset.sessionId;
+    const filePath = document.body.dataset.filePath;
+    vscode.setState({ sessionId, filePath });
     document.getElementById("resume").addEventListener("click", () => vscode.postMessage({ type: "resume" }));
   </script>
 </body>

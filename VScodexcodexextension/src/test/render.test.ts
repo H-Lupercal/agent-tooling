@@ -31,6 +31,9 @@ test("transcript HTML escapes content and uses a nonce-only CSP", () => {
   assert.match(html, /2 unsupported or malformed records were skipped/u);
   assert.equal((html.match(/id="resume"/gu) ?? []).length, 1);
   assert.equal((html.match(/<section class="message/gu) ?? []).length, 2);
+  assert.match(html, /data-session-id="019fc513-7044-7281-979d-6660f0ee8acd"/u);
+  assert.match(html, /data-file-path="\/tmp\/session\.jsonl"/u);
+  assert.match(html, /vscode\.setState\(\{ sessionId, filePath \}\)/u);
 });
 
 test("transcript HTML does not invent warnings for a clean session", () => {

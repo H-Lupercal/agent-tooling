@@ -18,7 +18,8 @@
     "transcript"
   ],
   "activationEvents": [
-    "onCommand:codexHistory.openConversation"
+    "onCommand:codexHistory.openConversation",
+    "onWebviewPanel:codexHistory.transcript"
   ],
   "main": "./out/extension.js",
   "contributes": {

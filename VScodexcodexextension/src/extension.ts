@@ -10,10 +10,12 @@ import { discoverSessionFiles } from "./discovery";
 import { isSessionInWorkspace, sortSessionSummaries } from "./history";
 import type { ParsedSession, SessionSummary } from "./model";
 import { loadSessionSummaries, parseSessionFile } from "./parser";
-import { renderTranscriptHtml } from "./render";
-import { createResumePlan } from "./resume";
+import { escapeHtml, renderTranscriptHtml } from "./render";
+import { parseTranscriptState, sessionFileMatchesState } from "./restoration";
+import { createResumePlan, resolveResumeViewColumn } from "./resume";
 import { loadThreadTitles } from "./thread-index";
 
+const TRANSCRIPT_VIEW_TYPE = "codexHistory.transcript";
 const openPanels = new Map<string, vscode.WebviewPanel>();
 
 interface HistoryItem extends vscode.QuickPickItem {
@@ -25,13 +27,15 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("codexHistory.openConversation", async () => {
       await openConversationPicker();
     }),
+    vscode.window.registerWebviewPanelSerializer(TRANSCRIPT_VIEW_TYPE, {
+      deserializeWebviewPanel: async (panel, state) => {
+        await restoreTranscriptPanel(panel, state);
+      },
+    }),
   );
 }
 
 export function deactivate(): void {
-  for (const panel of openPanels.values()) {
-    panel.dispose();
-  }
   openPanels.clear();
 }
 
@@ -45,10 +49,7 @@ async function openConversationPicker(): Promise<void> {
   picker.show();
 
   try {
-    const configuredHome = vscode.workspace
-      .getConfiguration("codexHistory")
-      .get<string>("codexHome");
-    const codexHome = resolveCodexHome(configuredHome, process.env, os.homedir());
+    const codexHome = configuredCodexHome();
     const filePaths = await discoverSessionFiles(codexHome);
     if (filePaths.length === 0) {
       picker.dispose();
@@ -144,9 +145,9 @@ async function openTranscript(
     return;
   }
 
-  let session = await parseSessionFile(summary.filePath, threadTitles);
+  const session = await parseSessionFile(summary.filePath, threadTitles);
   const panel = vscode.window.createWebviewPanel(
-    "codexHistory.transcript",
+    TRANSCRIPT_VIEW_TYPE,
     `Codex: ${session.title}`,
     vscode.ViewColumn.Active,
     {
@@ -155,22 +156,59 @@ async function openTranscript(
       retainContextWhenHidden: true,
     },
   );
-  openPanels.set(summary.sessionId, panel);
+  attachTranscriptPanel(panel, session, threadTitles);
+}
+
+async function restoreTranscriptPanel(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+  try {
+    const transcriptState = parseTranscriptState(state);
+    if (!transcriptState) {
+      throw new Error("The saved transcript state is invalid.");
+    }
+    const codexHome = configuredCodexHome();
+    if (!sessionFileMatchesState(codexHome, transcriptState)) {
+      throw new Error("The saved transcript path is outside the configured Codex history.");
+    }
+    const threadTitles = await loadThreadTitles(codexHome);
+    const session = await parseSessionFile(transcriptState.filePath, threadTitles);
+    if (session.sessionId.toLowerCase() !== transcriptState.sessionId.toLowerCase()) {
+      throw new Error("The saved transcript no longer matches its conversation ID.");
+    }
+    attachTranscriptPanel(panel, session, threadTitles);
+  } catch (error: unknown) {
+    panel.title = "Codex: Transcript unavailable";
+    panel.webview.options = { enableScripts: false, localResourceRoots: [] };
+    panel.webview.html = renderRestoreError(errorMessage("Could not restore conversation", error));
+  }
+}
+
+function attachTranscriptPanel(
+  panel: vscode.WebviewPanel,
+  initialSession: ParsedSession,
+  threadTitles: ReadonlyMap<string, string>,
+): void {
+  let session = initialSession;
+  panel.webview.options = {
+    enableScripts: true,
+    localResourceRoots: [],
+  };
+  panel.title = `Codex: ${session.title}`;
+  openPanels.set(session.sessionId, panel);
   renderPanel(panel, session);
 
   const messageDisposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isResumeMessage(message)) {
-      await resumeSession(session);
+      await resumeSession(session, panel.viewColumn);
     }
   });
-  const watcher = createSessionWatcher(summary.filePath, async () => {
-    session = await parseSessionFile(summary.filePath, threadTitles);
+  const watcher = createSessionWatcher(session.filePath, async () => {
+    session = await parseSessionFile(session.filePath, threadTitles);
     panel.title = `Codex: ${session.title}`;
     renderPanel(panel, session);
   });
 
   panel.onDidDispose(() => {
-    openPanels.delete(summary.sessionId);
+    openPanels.delete(session.sessionId);
     messageDisposable.dispose();
     watcher?.close();
   });
@@ -209,7 +247,10 @@ function createSessionWatcher(
   }
 }
 
-async function resumeSession(session: ParsedSession): Promise<void> {
+async function resumeSession(
+  session: ParsedSession,
+  transcriptViewColumn: vscode.ViewColumn | undefined,
+): Promise<void> {
   const cwd = await chooseResumeDirectory(session.cwd);
   if (!cwd) {
     return;
@@ -224,7 +265,10 @@ async function resumeSession(session: ParsedSession): Promise<void> {
   const terminal = vscode.window.createTerminal({
     name: `Codex: ${session.title}`,
     cwd: plan.cwd,
-    location: vscode.TerminalLocation.Editor,
+    location: {
+      viewColumn: resolveResumeViewColumn(transcriptViewColumn, vscode.ViewColumn.Active),
+      preserveFocus: false,
+    },
   });
   terminal.show();
   terminal.sendText([plan.executable, ...plan.args].join(" "), true);
@@ -259,6 +303,17 @@ async function isDirectory(filePath: string): Promise<boolean> {
 
 function workspaceRoots(): string[] {
   return vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
+}
+
+function configuredCodexHome(): string {
+  const configuredHome = vscode.workspace
+    .getConfiguration("codexHistory")
+    .get<string>("codexHome");
+  return resolveCodexHome(configuredHome, process.env, os.homedir());
+}
+
+function renderRestoreError(message: string): string {
+  return `<!DOCTYPE html><html lang="en"><body><h1>Transcript unavailable</h1><p>${escapeHtml(message)}</p></body></html>`;
 }
 
 function isResumeMessage(value: unknown): value is { type: "resume" } {
