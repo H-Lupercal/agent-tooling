@@ -6,6 +6,7 @@ conversations in editor tabs and resuming them in editor-area terminals.
 ## Features
 
 - Search previous Codex conversations by Codex-generated title, repository, date, or session ID.
+- Sort and display conversations by the latest user-prompt timestamp.
 - Default to conversations from the current workspace.
 - Toggle between the current workspace and all repositories.
 - Open readable, read-only transcripts in editor tabs.

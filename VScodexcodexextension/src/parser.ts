@@ -44,9 +44,9 @@ export async function parseSessionFile(
     const payload = isObject(record.payload) ? record.payload : undefined;
     const timestamp = stringValue(record.timestamp);
     if (record.type === "session_meta" && payload) {
-      sessionId = stringValue(payload.id) ?? stringValue(payload.session_id) ?? sessionId;
-      cwd = stringValue(payload.cwd) ?? cwd;
-      createdAt = stringValue(payload.timestamp) ?? timestamp ?? createdAt;
+      sessionId ??= stringValue(payload.id) ?? stringValue(payload.session_id);
+      cwd ??= stringValue(payload.cwd);
+      createdAt ??= stringValue(payload.timestamp) ?? timestamp;
       continue;
     }
     if (record.type === "event_msg" && payload) {
@@ -72,7 +72,7 @@ export async function parseSessionFile(
   const messages = primaryMessages.length > 0 ? primaryMessages : fallbackMessages;
   const firstUserMessage = messages.find((message) => message.role === "user")?.text;
   const fileNameId = path.basename(filePath).match(SESSION_ID_IN_NAME)?.[0];
-  const resolvedId = sessionId ?? fileNameId ?? path.basename(filePath, path.extname(filePath));
+  const resolvedId = fileNameId ?? sessionId ?? path.basename(filePath, path.extname(filePath));
 
   return {
     filePath,
@@ -80,7 +80,7 @@ export async function parseSessionFile(
     ...(cwd ? { cwd } : {}),
     title: threadTitles.get(resolvedId) ?? createTitle(firstUserMessage),
     ...(createdAt ? { createdAt } : {}),
-    updatedAtMs: details.mtimeMs,
+    updatedAtMs: latestUserPromptAtMs(messages) ?? details.mtimeMs,
     skippedRecords,
     messages,
   };
@@ -174,6 +174,20 @@ function createTitle(message: string | undefined): string {
   }
   const normalized = message.replace(/\s+/gu, " ").trim();
   return normalized.length <= 80 ? normalized : `${normalized.slice(0, 79)}…`;
+}
+
+function latestUserPromptAtMs(messages: readonly TranscriptMessage[]): number | undefined {
+  let latest: number | undefined;
+  for (const message of messages) {
+    if (message.role !== "user" || !message.timestamp) {
+      continue;
+    }
+    const timestamp = Date.parse(message.timestamp);
+    if (Number.isFinite(timestamp) && (latest === undefined || timestamp > latest)) {
+      latest = timestamp;
+    }
+  }
+  return latest;
 }
 
 function isObject(value: unknown): value is JsonObject {

@@ -129,7 +129,7 @@ function toHistoryItem(summary: SessionSummary): HistoryItem {
   return {
     label: summary.title,
     description: summary.cwd ?? "Unknown working directory",
-    detail: `Updated ${new Date(summary.updatedAtMs).toLocaleString()} • ${summary.sessionId}`,
+    detail: `Last prompted ${new Date(summary.updatedAtMs).toLocaleString()} • ${summary.sessionId}`,
     summary,
   };
 }

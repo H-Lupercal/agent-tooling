@@ -141,3 +141,81 @@ test("parser prefers Codex's generated thread title", async (context) => {
 
   assert.equal(parsed.title, "Generated Codex title");
 });
+
+test("parser keeps the parent identity when nested session metadata follows", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "codex-history-parser-"));
+  context.after(async () => rm(root, { force: true, recursive: true }));
+  const parentId = "019fc513-7044-7281-979d-6660f0ee8acd";
+  const childId = "119fc513-7044-7281-979d-6660f0ee8acd";
+  const filePath = path.join(root, `rollout-${parentId}.jsonl`);
+  const records = [
+    {
+      type: "session_meta",
+      payload: {
+        id: parentId,
+        cwd: "/work/parent",
+        timestamp: "2026-08-01T10:00:00Z",
+        source: "vscode",
+      },
+    },
+    {
+      type: "session_meta",
+      payload: {
+        id: childId,
+        cwd: "/work/child",
+        timestamp: "2026-08-02T10:00:00Z",
+        source: { subagent: {} },
+      },
+    },
+  ];
+  await writeFile(
+    filePath,
+    records.map((record) => JSON.stringify(record)).join("\n"),
+    "utf8",
+  );
+
+  const parsed = await parseSessionFile(
+    filePath,
+    new Map([
+      [parentId, "Parent title"],
+      [childId, "Child title"],
+    ]),
+  );
+
+  assert.equal(parsed.sessionId, parentId);
+  assert.equal(parsed.cwd, "/work/parent");
+  assert.equal(parsed.createdAt, "2026-08-01T10:00:00Z");
+  assert.equal(parsed.title, "Parent title");
+});
+
+test("parser uses the latest user prompt time as the updated time", async (context) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "codex-history-parser-"));
+  context.after(async () => rm(root, { force: true, recursive: true }));
+  const filePath = path.join(root, "session.jsonl");
+  const records = [
+    {
+      timestamp: "2026-08-01T10:00:00Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "First prompt" },
+    },
+    {
+      timestamp: "2026-08-03T12:34:56Z",
+      type: "event_msg",
+      payload: { type: "user_message", message: "Latest prompt" },
+    },
+    {
+      timestamp: "2026-08-03T13:00:00Z",
+      type: "event_msg",
+      payload: { type: "agent_message", message: "Later assistant response" },
+    },
+  ];
+  await writeFile(
+    filePath,
+    records.map((record) => JSON.stringify(record)).join("\n"),
+    "utf8",
+  );
+
+  const parsed = await parseSessionFile(filePath);
+
+  assert.equal(parsed.updatedAtMs, Date.parse("2026-08-03T12:34:56Z"));
+});
