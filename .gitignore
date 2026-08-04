@@ -1,5 +1,6 @@
 .worktrees/
 .gstack/
+/VScodexcodexextension/
 
 __pycache__/
 *.py[cod]
