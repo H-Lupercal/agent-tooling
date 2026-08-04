@@ -5,10 +5,11 @@ Home-level safety rules still apply.
 
 ## Scope
 
-- `toolbelt/`, `codex-conductor/`, and `install-rehearsal/` are independent Python packages.
+- `toolbelt/`, `codex-conductor/`, `install-rehearsal/`, and `agent-harness/` are independent Python packages.
+- `codex-history-command/` is an independent VS Code extension.
 - Keep package code, tests, lockfiles, and documentation inside the owning project.
 - Root files own monorepo CI, releases, security, support, and contribution policy.
-- Do not introduce a runtime dependency between the two packages.
+- Do not introduce runtime dependencies between projects.
 - Do not push, tag, publish, or modify a live user installation without explicit user
   authorization.
 
@@ -31,6 +32,10 @@ make e2e PYTHON=.venv/bin/python
 cd ../install-rehearsal
 make check PYTHON=.venv/bin/python
 make build PYTHON=.venv/bin/python
+
+cd ../codex-history-command
+npm run check
+npm run package
 ```
 
 For release work, also run locked builds, Twine, dependency audits, SBOM generation,

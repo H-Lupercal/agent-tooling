@@ -1,7 +1,7 @@
 # Agent Tooling
 
-Agent Tooling is a Python monorepo containing four independently versioned command-line
-tools for professional AI-assisted development.
+Agent Tooling is a monorepo containing four independently versioned Python command-line
+tools and one VS Code command extension for professional AI-assisted development.
 
 | Project | Package | Purpose |
 | --- | --- | --- |
@@ -9,9 +9,11 @@ tools for professional AI-assisted development.
 | [Codex Conductor](codex-conductor/) | `codex-conductor` | Enforces cost-aware subagent admission, routing, lifecycle accounting, and installation policy for Codex and Claude Code. |
 | [Install Rehearsal](install-rehearsal/) | `install-rehearsal` | Observes trusted installer effects in a disposable redirected user profile. |
 | [Agent Harness](agent-harness/) | `agent-harness` | Coordinates a durable, interruptible conversation among a configurable roster of AI agents. |
+| [Codex History Command](codex-history-command/) | VS Code extension | Opens local Codex conversation history in restorable editor tabs and resumes chats in editor terminals. |
 
-All projects require Python 3.11 or newer, ship typed wheels, use locked development
-environments, and include detailed documentation.
+The Python projects require Python 3.11 or newer and ship typed wheels. The Codex
+History Command requires Node.js 20 or newer. Every project uses a locked development
+environment and includes detailed documentation.
 
 ## Install
 
@@ -20,6 +22,11 @@ pipx install toolbelt-ai
 python -m pip install codex-conductor
 python -m pip install ./install-rehearsal
 python -m pip install ./agent-harness
+
+cd codex-history-command
+npm ci
+npm run package
+code --install-extension codex-history-command-0.1.0.vsix --force
 ```
 
 Package-specific setup and trust-boundary guidance is in each project README:
@@ -28,6 +35,7 @@ Package-specific setup and trust-boundary guidance is in each project README:
 - [Codex Conductor quick start](codex-conductor/README.md)
 - [Install Rehearsal quick start](install-rehearsal/README.md)
 - [Agent Harness quick start](agent-harness/README.md)
+- [Codex History Command quick start](codex-history-command/README.md)
 
 ## Develop
 
@@ -57,6 +65,11 @@ cd ../agent-harness
 uv sync --extra dev --locked
 make check PYTHON=.venv/bin/python
 make build PYTHON=.venv/bin/python
+
+cd ../codex-history-command
+npm ci
+npm run check
+npm run package
 ```
 
 The root release-contract test validates monorepo metadata and automation:
@@ -87,5 +100,6 @@ See [Toolbelt releasing](toolbelt/RELEASING.md) and
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [MIT license](LICENSE); package copies: [Toolbelt](toolbelt/LICENSE),
   [Codex Conductor](codex-conductor/LICENSE),
-  [Install Rehearsal](install-rehearsal/LICENSE), and
-  [Agent Harness](agent-harness/LICENSE)
+  [Install Rehearsal](install-rehearsal/LICENSE),
+  [Agent Harness](agent-harness/LICENSE), and
+  [Codex History Command](codex-history-command/LICENSE)

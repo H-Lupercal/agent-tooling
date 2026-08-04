@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECTS = ("toolbelt", "codex-conductor", "install-rehearsal", "agent-harness")
+EXTENSION_PROJECTS = ("codex-history-command",)
 PUBLISHED_PROJECTS = ("toolbelt", "codex-conductor")
 REPOSITORY_URL = "https://github.com/H-Lupercal/agent-tooling"
 SHA_PIN = re.compile(r"^[0-9a-f]{40}$")
@@ -64,6 +65,15 @@ def test_each_project_is_documented_and_owns_core_package_files() -> None:
         assert f"[{project.replace('-', ' ').title()}]({project}/)" in root_readme
         missing = [name for name in required if not (ROOT / project / name).is_file()]
         assert not missing, f"{project} is missing package files: {missing}"
+
+
+def test_each_extension_is_documented_and_owns_core_package_files() -> None:
+    root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    required = ("package.json", "package-lock.json", "README.md", "LICENSE")
+    for project in EXTENSION_PROJECTS:
+        assert f"[{project.replace('-', ' ').title()}]({project}/)" in root_readme
+        missing = [name for name in required if not (ROOT / project / name).is_file()]
+        assert not missing, f"{project} is missing extension files: {missing}"
 
 
 def test_github_metadata_is_owned_only_by_monorepo_root() -> None:
@@ -147,7 +157,7 @@ def test_workflows_apply_release_security_hardening() -> None:
         assert unsafe not in ci, f"matrix value is interpolated into a shell: {unsafe}"
 
     dependabot = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
-    assert dependabot.count("cooldown:") == 3
+    assert dependabot.count("cooldown:") == 4
 
 
 def test_release_workflows_isolate_pypi_distributions_from_metadata() -> None:
@@ -183,6 +193,12 @@ def test_ci_targets_both_project_directories_and_unique_artifacts() -> None:
     assert "--cov-fail-under=90" in text
     assert text.count("environment build/sbom-venv") == 1
     assert text.count("scripts/finalize_sbom.py") == 1
+    assert "cache-dependency-path: codex-history-command/package-lock.json" in text
+    command_job = text.split("\n  codex-history-command:", 1)[1].split(
+        "\n  release-contract:", 1
+    )[0]
+    for command in ("npm ci", "npm run check", "npm run package"):
+        assert command in command_job
 
 
 def test_install_rehearsal_separates_platform_tests_from_coverage_gate() -> None:

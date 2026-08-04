@@ -1,6 +1,6 @@
 {
-  "name": "codex-history-viewer",
-  "displayName": "Codex History Viewer",
+  "name": "codex-history-command",
+  "displayName": "Codex History Command",
   "description": "Open local Codex conversation history in editor tabs and resume sessions in an editor terminal.",
   "version": "0.1.0",
   "publisher": "local-tools",
@@ -31,7 +31,7 @@
       }
     ],
     "configuration": {
-      "title": "Codex History Viewer",
+      "title": "Codex History Command",
       "properties": {
         "codexHistory.codexHome": {
           "type": "string",

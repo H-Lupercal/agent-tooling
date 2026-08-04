@@ -5,9 +5,9 @@ the [Code of Conduct](CODE_OF_CONDUCT.md) in all project spaces.
 
 ## Choose the project
 
-Keep changes within `toolbelt/` or `codex-conductor/` unless they alter shared
+Keep project changes within the owning top-level directory unless they alter shared
 repository automation or governance. Update the matching changelog and documentation
-when behavior changes. Avoid coupling the packages: they are built, installed, and
+when behavior changes. Avoid coupling the projects: they are built, installed, and
 released independently.
 
 ## Setup
@@ -22,6 +22,10 @@ uv sync --extra dev --locked
 # Or, in a separate environment:
 cd ../codex-conductor
 uv sync --extra dev --locked
+
+# Or, for the VS Code extension:
+cd ../codex-history-command
+npm ci
 ```
 
 Use test-driven development for behavior changes. Before opening a pull request, run

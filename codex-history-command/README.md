@@ -1,6 +1,6 @@
-# Codex History Viewer
+# Codex History Command
 
-Codex History Viewer is a local-only VS Code extension for opening saved Codex
+Codex History Command is a local-only VS Code extension for opening saved Codex
 conversations in editor tabs and resuming them in editor-area terminals.
 
 ## Features
@@ -29,7 +29,7 @@ npm install
 npm run package
 ```
 
-This creates `codex-history-viewer-0.1.0.vsix`. In VS Code, run
+This creates `codex-history-command-0.1.0.vsix`. In VS Code, run
 **Extensions: Install from VSIX...** and select that file. The extension is
 installed for the current editor profile and is available from every repository.
 

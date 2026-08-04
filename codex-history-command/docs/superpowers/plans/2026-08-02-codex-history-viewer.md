@@ -384,7 +384,7 @@ Expected: typecheck, lint, and all Node tests exit 0 with zero failures.
 
 Run: `npm run package`
 
-Expected: `codex-history-viewer-0.1.0.vsix` is created and `vsce` exits 0.
+Expected: `codex-history-command-0.1.0.vsix` is created and `vsce` exits 0.
 
 - [ ] **Step 4: Inspect packaged contents**
 
@@ -407,7 +407,7 @@ Expected: PASS.
 - [ ] **Step 6: Commit only the extension directory**
 
 ```bash
-git add VScodexcodexextension
+git add codex-history-command
 git commit -m "feat: add local Codex history viewer extension"
 ```
 
