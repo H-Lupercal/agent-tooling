@@ -20,7 +20,10 @@ def _reservation_worker(
 
     start.wait()
     try:
-        store = Store(Path(path), busy_timeout_ms=4_000)
+        # Coverage instrumentation and loaded CI hosts can keep the SQLite writer
+        # lock busy for several seconds. This test checks reservation atomicity,
+        # while bounded lock-failure behavior has its own focused unit test.
+        store = Store(Path(path), busy_timeout_ms=30_000)
         decision = store.reserve(
             ReservationRequest(
                 run_id=run_id,
@@ -53,7 +56,7 @@ def run_concurrent_decisions(
 ) -> list[tuple]:
     from conductor.store import Store
 
-    Store(store_path, busy_timeout_ms=4_000).create_run(
+    Store(store_path, busy_timeout_ms=30_000).create_run(
         "stress-run",
         provider="codex",
         generation=1,
@@ -82,7 +85,7 @@ def run_concurrent_decisions(
     for worker in workers:
         worker.start()
     start.set()
-    output = [results.get(timeout=30) for _ in workers]
+    output = [results.get(timeout=60) for _ in workers]
     for worker in workers:
         worker.join(timeout=30)
         assert worker.exitcode == 0

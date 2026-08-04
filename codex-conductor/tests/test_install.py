@@ -2,7 +2,7 @@ import json
 import tempfile
 import tomllib
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 
@@ -10,10 +10,11 @@ class InstallTests(unittest.TestCase):
     def test_codex_hook_hashes_match_runtime_normalization(self):
         from conductor.install import _codex_hook_trust_entries, _render_hooks_json
 
-        hooks_path = Path("/opt/conductor/hooks.json")
+        # Keep this known hash vector independent of the runner's path flavor.
+        hooks_path = PurePosixPath("/opt/conductor/hooks.json")
         with patch("conductor.install.sys.executable", "/usr/bin/python3"):
             entries = _codex_hook_trust_entries(
-                hooks_path, _render_hooks_json(Path("/opt/conductor/hooks"))
+                hooks_path, _render_hooks_json(PurePosixPath("/opt/conductor/hooks"))
             )
 
         self.assertEqual(
@@ -37,10 +38,10 @@ class InstallTests(unittest.TestCase):
             (codex_home / "config.toml").write_text(
                 "\n".join(
                     (
-                        f'[hooks.state."{stale_key}"]',
+                        f"[hooks.state.{json.dumps(stale_key)}]",
                         'trusted_hash = "sha256:stale"',
                         "",
-                        f'[hooks.state."{unrelated_key}"]',
+                        f"[hooks.state.{json.dumps(unrelated_key)}]",
                         'trusted_hash = "sha256:keep"',
                         "",
                     )
