@@ -52,12 +52,12 @@
     "package": "npm run check && vsce package --no-dependencies --allow-missing-repository"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "@types/node": "^24.10.1",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.2",
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.9.2",
-    "eslint": "^9.39.1",
-    "typescript": "^5.9.2",
+    "eslint": "^10.8.0",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.46.3"
   }
 }
