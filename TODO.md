@@ -42,3 +42,31 @@
 
 ## Additional note
 - Reference: repository is `H-Lupercal/agent-tooling`.
+
+## Claude Code Fix: Per-task model and reasoning delegation in Conductor
+
+### Request restatement
+- Use existing Conductor/Anthropic tier logic to spawn subagents with different models and reasoning effort instead of only same-model forks.
+- Preserve correct behavior by delegating by task difficulty, not project importance.
+
+### Findings
+- Conductor exposes tiered routing (`opus`/`sonnet`/`haiku`) and currently has three enabled tiers with effort metadata.
+- Plain Agent/tool calls can set `model` but not `reasoning_effort`; full model×effort control currently comes from workflow calls or agent definitions in `.claude/agents/*.md` frontmatter.
+- No local agent definitions for model/effort specialization exist yet in this repo (`~/.claude/agents` or repo-level `.claude/agents`).
+- In this run, delegation was not exercised because the task was answerable from existing state, but this is expected behavior.
+
+### Fix to implement
+1. Add policy-level delegation rules that force explicit downward routing for suitable classes:
+   - simple/mechanical/docs/format/search/summarize-like tasks -> cheaper model + low/medium effort
+   - standard implementation/debugging -> standard tier defaults
+   - architecture/high-risk/review/integration -> highest tier
+2. Add/adjust `.claude/agents/*.md` definitions for:
+   - cheap-searcher (`haiku`, low effort)
+   - standard-builder (`sonnet`, medium effort)
+   - deep-reviewer (`opus`, high/maximum effort, where supported)
+3. Ensure orchestration does not default to same-level `fork_turns="all"` when a lower-cost worker is sufficient.
+
+### Validation intent
+- Track that spawned tasks include explicit lower `model`/`reasoning_effort` overrides for eligible work.
+- Verify a trivial file-level task is delegated downward while complex/architectural tasks remain on higher tiers.
+- Keep changes policy-localized (no core routing redesign).
