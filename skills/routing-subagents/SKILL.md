@@ -54,6 +54,7 @@ Preserve this skill's local convention: assign `ultra` only to a spawned orchest
 
 ## Dispatch and escalate
 
+- Name each subagent’s `task_name` after its model and reasoning effort (for example, `terra_medium` or `astra_xhigh`), adding a short task suffix when needed for uniqueness.
 - Give each subagent a bounded goal, scope, constraints, expected output, and verification responsibility.
 - Default ordinary implementation and review to Terra at `medium`; prefer Luna at `low` for deterministic support work. Use Astra at `medium` or `high` when the task needs stronger capability; reserve `xhigh` and `max` for justified depth.
 - Pass both `model` and `reasoning_effort` when selecting a route. With the collaboration tool's `fork_turns`, use `"none"` or a positive integer string for overrides; full-history forks (`"all"` or omitted) inherit the parent's model and effort and do not accept overrides. Give a limited-context agent enough task context to work independently.
