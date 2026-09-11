@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
           enable-cache: false
       - run: uv sync --extra dev --locked
@@ -61,7 +61,7 @@ jobs:
           cd dist
           sha256sum *.whl *.tar.gz *.cdx.json > SHA256SUMS
         working-directory: codex-conductor
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: |
             codex-conductor/dist/*.whl
