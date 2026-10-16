@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
         with:
           enable-cache: false
       - run: uv sync --extra dev --locked
@@ -61,19 +61,19 @@ jobs:
           cd dist
           sha256sum *.whl *.tar.gz *.cdx.json > SHA256SUMS
         working-directory: toolbelt
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
         with:
           subject-path: |
             toolbelt/dist/*.whl
             toolbelt/dist/*.tar.gz
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: toolbelt-pypi-distributions
           path: |
             toolbelt/dist/*.whl
             toolbelt/dist/*.tar.gz
           if-no-files-found: error
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: toolbelt-release-assets
           path: toolbelt/dist/*
@@ -92,7 +92,7 @@ jobs:
       name: pypi-toolbelt
       url: https://pypi.org/project/toolbelt-ai/
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: toolbelt-pypi-distributions
           path: toolbelt-pypi-dist
@@ -100,7 +100,7 @@ jobs:
         with:
           packages-dir: toolbelt-pypi-dist/
           skip-existing: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: toolbelt-release-assets
           path: toolbelt-release-assets
